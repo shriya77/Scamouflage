@@ -12,6 +12,7 @@ IBM Z Datathon 2026 · Track B (AI Secured)
 CT logs ─► certstream-server-go :8080 ─► ingest/consumer.py ─► verify ─► featurize ─► score ─► sign
                                                  │
                                                  ├─► data/scamouflage.db  (alerts, seen, labels)
+                                                 │        └─► api :8000 /api/blocklist ─► browser extension
                                                  └─► data/stats.json ─► api :8000 ─► dashboard
 ```
 
@@ -25,6 +26,7 @@ Interfaces are in **[CONTRACTS.md](CONTRACTS.md)**. Read it before touching code
 | `verify/` `alerts/` `bench/` | D | signature verify, Ed25519 signing, CPACF A/B |
 | `campaigns/` | E | clustering alerts into campaigns |
 | `api/` `dashboard/` | F | API on :8000, web UI |
+| `extension/` | F | Scamouflage browser extension (Chrome, MV3) |
 
 ## Run it (on the VM)
 
@@ -62,6 +64,17 @@ Swap your real function into your file (e.g. `model/model.py`) and run the consu
 
 - **Certificate Transparency**: 82 CT logs via [certstream-server-go](https://github.com/d-Rickyy-b/certstream-server-go) (incl. Let's Encrypt Static CT logs).
 - **Labels**: [Phishing.Database](https://github.com/mitchellkrogza/Phishing.Database) (392k domains, ~1.7k toll/USPS), [phishunt.io](https://phishunt.io/feed.txt), [OpenPhish](https://openphish.com/) community feed, [Unit 42 Smishing Triad IOCs](https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel) as seed patterns.
+
+## Browser extension
+
+The `extension/` folder is a Chrome extension that warns users when they open a flagged site.
+
+- **The API publishes a list.** `GET /api/blocklist` on :8000 returns every flagged domain as a SHA-256 hash with its score and reasons, signed with the alert Ed25519 key.
+- **The extension keeps a copy.** Every 30 minutes it downloads the list, verifies the signature with the bundled public key, and saves it in the browser. Invalid or older lists are rejected.
+- **Checks happen in the browser.** For each site opened, it hashes the domain and its parents (e.g. `ezpass.com-xk2.win` and `com-xk2.win`) and looks them up locally. The server never sees what anyone browses.
+- **On a match**, a full-page warning shows the score and reasons, with *Go back* and *Continue anyway*.
+
+To run it: open the SSH tunnel (`ssh -L 8000:localhost:8000 user@vm`), go to `chrome://extensions`, turn on Developer mode, and click *Load unpacked* on `extension/`. Demo mode flags a harmless local test page, so the demo never opens a real scam site.
 
 ## Safety
 
