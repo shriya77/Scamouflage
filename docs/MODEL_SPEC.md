@@ -269,6 +269,17 @@ class Stage2:
   certs (split by registered domain).
 - Must never return a negative number. Must not raise; on any error return 0.0 and log once.
 
+**As built (v1, `model/stage2.py`, report `reports/stage2_eval.md`).** The example table above was
+measured on 7,199 gated live certificates (26 min of the stream) and boosted 42.6 % of them:
+misspelling matches on ordinary words (vercel ~ parcel, tools ~ tolls), one real site with many
+subdomains, `us-west-2` cloud names. v1 counts exact brand words only (one per name) and a strict
+kit pattern: +0.30 for 2+ different brands on one cert, +0.15 more for 3+, +0.15 for brand names on
+3+ registered domains, +0.10 for 2+ `.com-`/`gov-` names next to a brand; 0 if the cert covers an
+official site; cap 0.6. Result: 0 of 7,199 gated live certs boosted; 0 of 12 known-scam certs from
+crt.sh (nearly all single-name, which is neutral by design). Most known toll/delivery/gov scams are
+one name on one domain (73 of 3,512 registered domains have 2+ listed names), so Stage 2 rarely
+fires. v2 is not possible yet (needs 500+ labeled scam certs). `boost()` 55 µs per new cert on s390x.
+
 ## 8. Stage 3 — Verifier (owner Shadow) — `model/stage3.py`
 
 Stage 3 is what turns a score into a confident verdict: it removes false alarms on long-established
