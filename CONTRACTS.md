@@ -16,7 +16,7 @@ CT logs -> certstream-server-go (:8080) -> ingest/consumer.py
 
 ```python
 {
-  "id":          "5feceb66...",   # sha256 of the leaf cert, lowercase hex, no colons
+  "id":          "5feceb66...",   # sha256 of the leaf cert, lowercase hex, no colons ("sn:..." for empty-DER precerts, see note)
   "seen_at":     1792248185.59,   # unix seconds the log entry was seen
   "domains":     ["ezpass.com-xyz.win", ...],  # lowercased, "*." stripped, de-duped
   "issuer":      "/C=US/O=Let's Encrypt/CN=R11",
@@ -27,11 +27,13 @@ CT logs -> certstream-server-go (:8080) -> ingest/consumer.py
   # --- added by Platform ---
   "update_type": "precert" | "cert",
   "chain_b64":   ["MIIF...", ...], # issuer chain DER, base64. CAN BE [] (see note)
-  "cert_index":  123456789
+  "cert_index":  123456789,
+  "crtsh_url":   "https://crt.sh/?q=5feceb66..."  # ?serial=<serial> for empty-DER precerts
 }
 ```
 
 **Notes**
+- **Empty-DER precerts.** certstream-server-go sends many precerts (29% of messages, mostly from the static logs) without their DER, so their `sha256` is the hash of empty bytes (`e3b0c442…`). For those, `id` is `"sn:" + sha256(issuer + "\n" + serial)`, which is the same in every log the precert is in, and `crtsh_url` searches crt.sh by serial. Every other record keeps the real sha256, so old rows in `seen` and `alerts` still match.
 - The **same certificate shows up twice**: once as a precert and once as the final cert. They have **different sha256**. The consumer de-dupes exact hashes only, so expect about 2× per domain. Use `seen` (first time per domain) for lead-time.
 - **Static CT logs (Let's Encrypt Sycamore/Willow) send no chain.** `chain_b64` is `[]` for them. `verify` must handle that: look the issuer up in a cache keyed by issuer name, or return `unknown_issuer`.
 - Real rate on our VM: **~885 unique certs/sec** (~2,250 websocket msgs/sec). Your function gets **about 1 ms per cert** on one core. With `--workers 3`, it gets about 3 ms.
@@ -58,11 +60,15 @@ Always open it with `from ingest.db import connect; con = connect()`. That creat
 
 ```sql
 alerts(id INTEGER PK, cert_id, domain, domains JSON, score, reasons JSON, seen_at,
-       issuer, log, verify, crtsh_url, sig, key_id)          -- written by consumer (A)
+       issuer, log, verify, crtsh_url, sig, key_id,          -- written by consumer (A)
+       verdict, stage, s1, s2_boost, brand, category, verified, age_days, registrar,
+       risky_registrar, model_version, cert_seen_at, decided_at)   -- engine Decision fields
 labels(domain, feed, first_seen, brand, PK(domain, feed))    -- written by B
 seen(domain PK, first_cert_seen, cert_id)                    -- written by consumer (A)
 ```
 
+- **Engine alerts** (`ingest/consumer.py`, default `--engine`): one row per flagged **name** (`domain` = that name, `score` = final score), at most one per name per 24 h. The Decision columns come from `model/engine.py` (`DECISION_FIELDS`) and are added to older DBs with `ALTER TABLE` (`ingest/db.py`; rows from before, or from `--no-engine`, have them NULL). `verdict` is always `scam`; `stage` 0 = known list, 2 = scored but Stage 3 gave no answer (alerted on the score), 3 = verified by RDAP; `verified`/`risky_registrar` are 0/1; `cert_seen_at`/`decided_at` are ISO UTC strings; `category` is toll / delivery / gov / other. `reasons` are short sentences built only from measured fields ("Pretends to be E-ZPass", "Registered 3 hours ago via Gname.com Pte. Ltd. (Unit 42 high-risk registrar)").
+- **Signature:** `sig` covers `alerts/sign.py` `SIGNED_FIELDS` = the 10 original fields + all 13 Decision fields, signed after Stage 3, exactly as stored (REAL as float, INTEGER as int). A row whose Decision fields are all NULL (written before the engine) was signed over the original 10 only; `canonical()` picks that form automatically.
 - `seen` holds **every toll/USPS-brand domain**, plus a deterministic **1% sample** of all other domains. (Storing every domain would fill the disk.)
 - Lead time for a labelled domain = `labels.first_seen - seen.first_cert_seen`.
 - Alerts with `stage = 0` mean "already on a known scam list" (Stage 0, `model/stage0.py`) when we saw the certificate. They must **not** count toward lead-time / "caught early" stats; only `stage >= 1` alerts can.
@@ -72,12 +78,20 @@ seen(domain PK, first_cert_seen, cert_id)                    -- written by consu
 
 | File | Owner | Refresh | Contents |
 |---|---|---|---|
-| `stats.json` | A | every 1 s | `ts, uptime_s, msgs_total, certs_total, dupes_total, precert_total, cert_total, processed_total, alerts_total, msgs_per_s, certs_per_s, verify{}, avg_verify_ms, avg_score_ms, queue_depth, dropped_total, lag_s, top_logs{}, last_alert{}` |
+| `stats.json` | A | every 1 s | `ts, uptime_s, msgs_total, certs_total, dupes_total, precert_total, cert_total, processed_total, alerts_total, msgs_per_s, certs_per_s, verify{}, avg_verify_ms, avg_score_ms, queue_depth, dropped_total, lag_s, top_logs{}, last_alert{}`, `engine{}` (see below) and, with the engine on: `names_checked, names_per_s, gate_passes, stage0_hits, high, maybe, stage3{}, alerts_new, alerts_known, alerts_by_category{}, alerts_deduped, official_blocked, allowlisted_names, engine_ms_per_cert, max_engine_ms_per_cert, proc_lag_s, max_proc_lag_s, unique_names_per_day, unique_names_estimate{}, recent_names[], recent_alerts[], stage3_examples{}, engine_errors, batch_errors` |
 | `results.json` | C | once per training run | model vs baselines: precision/recall at 1 FP per 10k, PR curve points, time-split info |
 | `leadtime.json` | B | on demand | per-domain lead times + median/p90 vs each feed |
 | `hardware.json` | D | on demand | CPACF A/B numbers (on vs `OPENSSL_s390xcap` off), PAI counter deltas, `protected_keys{dir, bytes{protkey_aes_*: int}, pckmo_delta{}}` (file names + byte lengths only, never key bytes) |
 | `cpacf_live.json` | D | every 2 s (`bench.counters`, tmux `cpacf`) | `ts, interval_s, available, totals{name: int}, rates_per_s{name: float}, groups{ecdsa_verify_per_s, eddsa_sign_per_s, eddsa_verify_per_s, sha_per_s, aes_per_s, trng_per_s}, error` (see below) |
 | `alert_pubkey.pem` | D | once (`alerts.keygen`) | PEM public key for the alert signatures (`keys/alert_ed25519.pem`). Safe to publish. |
+
+Engine keys in `stats.json`:
+- `engine`: `{mode: "on"|"off", stage0, stage1, stage2, stage3: "real"|"stub", stage1_version, t_high, t_low, stage0_hosts, stage0_refreshes, workers{pid: {rss_mb, load_s, stage0_hosts, stage0_refreshes, stage0_last_added}}}`. A stage is "real" only if every worker loaded it.
+- `names_checked` = clean names the engine looked at (per certificate, so a precert + cert pair counts twice); `gate_passes`, `stage0_hits`, `high`, `maybe` count the same way. `stage3.queued_high` / `queued_maybe` count distinct names sent to Stage 3.
+- `stage3`: `confirmed` (HIGH, RDAP answered, scam), `kept_unverified` (HIGH, no answer, alerted on the score), `removed` (HIGH -> safe, old domain), `rescued` (MAYBE -> scam, new domain), `cleared` (MAYBE -> safe with an answer), `dropped_unverified` (MAYBE, no answer -> safe), `failed` + `failed_by_reason{timeout, rate_limited, not_found, other, shared_hosting, deadline, queue_full, no_stage3, shutdown}`, `queue_depth`, `max_queue_depth`, `queue_full`, `lookups`, `lookups_per_s`, `max_lookups_per_s_10s`, `max_wait_s`.
+- `lag_s` = now − the newest certificate's `seen` (meaningless in a replay); `proc_lag_s` = time from receiving a certificate to its results being written.
+- `unique_names_per_day`: 1/64 hash sample of clean names, distinct per clock hour × 64 × 24 (the current hour is scaled up until a full hour has been measured). Details in `unique_names_estimate{unique_names_per_hour, basis, sample}` and the `ingest/consumer.py` docstring.
+- `recent_names`: ~30 recently seen names (a random sample, plain strings). `recent_alerts`: last 15 alerts, newest first, `{host, category, score, stage, decided_at}`. Show both as plain text only, never as links.
 
 `cpacf_live.json` comes from `sudo cpacfstats` (PAI counters, `pai_user` + `pai_kernel` summed). `totals` only lists counters > 0, e.g. `"KDSA ECDSA Verify P256"`. `rates_per_s` = delta between two samples / real seconds between them. `groups` sum the matching rates: `KDSA ECDSA Verify *`, `KDSA EdDSA Sign *`, `KDSA EdDSA Verify *`, `KIMD SHA*`+`KLMD SHA*`, `KM*/KMA* … AES*`, `PRNO TRNG`. The counters are **machine-wide** (every process on the VM, including SSH's AES), not just our pipeline. If cpacfstats is missing: `available: false`, `error` says why, everything else is empty/0.
 

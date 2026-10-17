@@ -16,3 +16,9 @@ dhl.com
 irs.gov
 txdmv.gov
 dmv.ca.gov
+# poisoned-feed guard until tranco_top exists
+nflxvideo.net   # Netflix CDN, listed by phishing_database
+outlook.com     # Microsoft mail, listed by phishunt
+linkedin.com    # LinkedIn, listed by phishunt and Unit 42 IOC lists
+x.com           # X (Twitter), listed by Unit 42 IOC lists
+windows-ppe.net # Microsoft pre-production login, listed by phishing_database

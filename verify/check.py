@@ -47,7 +47,7 @@ def main():
                 by_algo[r["algo"]] += 1
             reasons[(r["status"], r.get("reason", ""))] += 1
             if r["status"] == "fail" and len(fails) < 5:
-                fails.append((rec["update_type"], rec["log"], r.get("reason"), f"https://crt.sh/?q={rec['id']}"))
+                fails.append((rec["update_type"], rec["log"], r.get("reason"), rec["crtsh_url"]))
             if n >= args.n:
                 break
 
