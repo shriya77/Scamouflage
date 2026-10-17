@@ -139,7 +139,7 @@ def test_whole_certificate_fixtures():
 
 
 def test_stub_engine_runs_and_says_safe():
-    e = Engine.from_disk(labels_db="/nonexistent.db")
+    e = Engine.from_disk(labels_db="/nonexistent.db", model_dir="/nonexistent-models")
     assert e.decide_host("ezpass.com-xk2.win")["verdict"] == "safe"               # stub Stage 1 = 0.0
     load_stage3()                                                                 # None or a function; never raises
 
