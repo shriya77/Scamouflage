@@ -20,13 +20,14 @@ Guards against poisoned feeds (phishing feeds sometimes list big legitimate name
   - official:      a listed name that is, or is under, a site in labels/official.txt is skipped.
   - both_lists:    a listed name that is also in the `negatives` table (Tranco + official) is
                    skipped, the same rule as labels/build_dataset.py.
-  - tranco_top:    a listed name that is in the optional `tranco_top` table (Tranco's top N by
-                   rank, NOT minus the scam lists), or whose registered domain is, is skipped. So a
-                   noisy feed listing a big site (nflxvideo.net) cannot flag every name under it.
-                   No table: no guard (the old behaviour).
+  - tranco_top:    a listed name that is itself in the optional `tranco_top` table (Tranco's top N
+                   by rank, NOT minus the scam lists) is skipped. So a noisy feed listing a big site
+                   (nflxvideo.net) cannot flag every name under it. A listed name UNDER a top site
+                   (evil.weebly.com) is kept and still matches exactly. No table: no guard.
   - rule (b) never fires through a registered domain that is in `negatives` (as a host or as a
-    negative's domain) or in official.txt. The name itself still matches exactly. A tranco_top
-    domain is dropped from the list outright, so rule (b) never fires through one either.
+    negative's domain) or in official.txt. The name itself still matches exactly. Rule (b) only
+    fires through a registered domain that is itself listed, and a tranco_top name is never in
+    the list, so rule (b) never fires through one either.
 
 Refresh column: `rowid`. feeds.py inserts new rows with INSERT OR IGNORE (rowid only grows) and
 rewrites `last_seen` on EVERY existing row each pull, so "last_seen > last refresh" would re-read
@@ -257,16 +258,6 @@ class KnownList:
             pass
         return out
 
-    @staticmethod
-    def _in_top(h: str, top: set) -> bool:
-        """h, or h's registered domain, is in tranco_top. The registered domain is h or one of its
-        parents, so the PSL is asked only when some parent is in the set (evil.github.io: github.io
-        is, but the registered domain evil.github.io is not). Uncached, so loading 500k+ names
-        does not fill check()'s cache."""
-        if h in top:
-            return True
-        return any(p in top for p in _parents(h)) and registered_domain.__wrapped__(h) in top
-
     def _drop_reason(self, h: str, neg_hosts: set, top: set) -> str | None:
         if is_public_suffix(h):
             return "public_suffix"
@@ -275,7 +266,9 @@ class KnownList:
             return "official"
         if h in neg_hosts:
             return "both_lists"
-        if top and self._in_top(h, top):
+        # Only the name itself: tenants under a top site (evil.weebly.com) keep their exact match.
+        # Dropping the top site is also what keeps rule (b) from firing through it.
+        if h in top:
             return "tranco_top"
         return None
 

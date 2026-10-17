@@ -70,8 +70,8 @@ TRANCO_TOP = [("bigsite.test", 1), ("github.io", 2), ("WWW.Video-CDN.TEST", 3), 
 # Poisoned rows a noisy feed adds on top of LABELS, for the tranco_top tests.
 POISONED = [
     ("bigsite.test", None, "other", "phishing_database"),       # a big site itself (nflxvideo.net)
-    ("login.bigsite.test", None, "other", "openphish"),         # under a big site's registered domain
-    ("a.1.oca.video-cdn.test", None, "other", "phishing_army"),  # same, table row needs cleaning
+    ("login.bigsite.test", None, "other", "openphish"),         # a tenant under a big site: kept
+    ("video-cdn.test", None, "other", "phishing_army"),         # a big site; table row needs cleaning
 ]
 
 
@@ -308,21 +308,26 @@ def test_tranco_top_guard(fx):
     # a big site a noisy feed listed is dropped, so nothing under it matches (nflxvideo.net case)
     assert kl.check("bigsite.test") is None
     assert kl.check("x.1.oca.bigsite.test") is None
-    assert kl.check("login.bigsite.test") is None          # its registered domain is a top site
-    assert kl.check("a.1.oca.video-cdn.test") is None      # the table row was cleaned on load
-    assert s["removed_rows"]["tranco_top"] == 3 and s["removed_hosts"]["tranco_top"] == 3
+    assert kl.check("video-cdn.test") is None              # the table row was cleaned on load
+    assert kl.check("a.1.oca.video-cdn.test") is None
+    assert s["removed_rows"]["tranco_top"] == 2 and s["removed_hosts"]["tranco_top"] == 2
     assert s["tranco_top_hosts"] == 4
-    # github.io is a top site, but evil.github.io is its own registered domain (private PSL)
+    # a listed tenant under a top site keeps its exact match, and only that
+    assert kl.explain("login.bigsite.test") == ({"brand": None, "category": "other",
+                                                 "feed": "openphish"}, "exact", "login.bigsite.test")
+    assert kl.check("www.login.bigsite.test") is not None   # www. is cleaned off
+    assert kl.check("x.login.bigsite.test") is None
+    # github.io is a top site, and evil.github.io (a tenant) still matches
     assert kl.explain("evil.github.io")[1] == "exact"
     assert kl.check("other.github.io") is None
     # nothing else changes
     assert kl.check("ezpass.com-abc.test") is not None
     assert kl.explain("sub.bad.test")[1] == "registered-domain"
-    assert s["unique_hosts"] == 7 and s["removed_rows"]["public_suffix"] == 1
+    assert s["unique_hosts"] == 8 and s["removed_rows"]["public_suffix"] == 1
     # the guard set is not kept after loading
     for name, v in vars(kl).items():
         if isinstance(v, (set, frozenset, dict)):
-            assert "quiet.test" not in v and "video-cdn.test" not in v, name
+            assert "quiet.test" not in v, name
 
 
 @with_fixture(extra_labels=POISONED)
@@ -332,23 +337,30 @@ def test_refresh_when_tranco_top_appears_and_changes(fx):
     fx.sql(TRANCO_SCHEMA)                       # an empty table appears: reload, nothing dropped
     assert kl.refresh() == 0 and kl.summary()["tranco_top_hosts"] == 0
     assert kl.check("x.bigsite.test") is not None
-    fx.sql(f"INSERT INTO tranco_top VALUES ('bigsite.test', 1, '{TS}')")
+    fx.sql(f"INSERT INTO tranco_top VALUES ('bigsite.test', 1, '{TS}')",
+           f"INSERT INTO tranco_top VALUES ('quiet.test', 2, '{TS}')")
     kl.refresh()
     assert kl.check("bigsite.test") is None and kl.check("x.bigsite.test") is None
-    assert kl.check("login.bigsite.test") is None
-    assert kl.summary()["removed_rows"]["tranco_top"] == 2
-    # new label rows go through the guard
+    assert kl.explain("login.bigsite.test")[1] == "exact"
+    assert kl.summary()["removed_rows"]["tranco_top"] == 1
+    # new label rows go through the guard: a top site is dropped, a tenant under one is added
+    fx.add("quiet.test")
+    assert kl.refresh() == 0 and kl.check("quiet.test") is None
     fx.add("pay.bigsite.test")
-    assert kl.refresh() == 0 and kl.check("pay.bigsite.test") is None
-    # a rebuild as feeds.py does it (DELETE + INSERT, same size, rowid 1 again, new `added`)
+    assert kl.refresh() == 1 and kl.explain("pay.bigsite.test")[1] == "exact"
+    assert kl.check("x.pay.bigsite.test") is None
+    # a rebuild as feeds.py does it (DELETE + INSERT, same size, rowids from 1 again, new `added`)
+    later = "2026-10-18T15:00:00+00:00"
     fx.sql("DELETE FROM tranco_top",
-           "INSERT INTO tranco_top VALUES ('quiet.test', 1, '2026-10-18T15:00:00+00:00')")
+           f"INSERT INTO tranco_top VALUES ('quiet.test', 1, '{later}')",
+           f"INSERT INTO tranco_top VALUES ('other.test', 2, '{later}')")
     kl.refresh()
     assert kl.explain("x.bigsite.test")[1] == "registered-domain"
-    assert kl.check("pay.bigsite.test") is not None
+    assert kl.check("quiet.test") is None
     fx.sql("DROP TABLE tranco_top")
     kl.refresh()
-    assert kl.summary()["tranco_top_hosts"] is None and kl.check("bigsite.test") is not None
+    assert kl.summary()["tranco_top_hosts"] is None
+    assert kl.check("bigsite.test") is not None and kl.check("quiet.test") is not None
 
 
 @with_fixture
