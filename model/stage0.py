@@ -1,26 +1,505 @@
 """
-Scamouflage — model/stage0.py  (owner: Shriya)   *** STUB — replace with the real version ***
+Scamouflage — model/stage0.py  (owner: Shriya)
 
-Stage 0: is this exact name already on our known-scam list? (MODEL_SPEC §4.3, §5)
+Stage 0: is this name already on a known-scam list? (MODEL_SPEC §3, §4.3, §5)
 
-Real version must:
-  - load ALL hosts from the `labels` table of labels.db (shared path) into an in-memory set
-  - refresh() every 15 min: load only rows with last_seen > last refresh, return how many were added
-  - check(host): exact host, or its registered domain if that domain itself is listed
-  - open SQLite in WAL mode with timeout=30; never query SQLite per certificate
+    kl = KnownList(default_db_path())    # loads every listed host into memory (once)
+    kl.check("pay.ezpass.com-abc.test")  # {"brand": .., "category": .., "feed": ..} or None
+    kl.refresh()                         # every 15 min: reads only rows added since the last read
 
-Keep the class name and method signatures exactly as below — engine.py calls them.
+Match rule (§4.3): a name is a hit if
+  (a) the cleaned name itself is listed ("exact"), or
+  (b) its REGISTERED domain is itself listed as a host ("registered-domain").
+The registered domain comes from tldextract with the private part of the Public Suffix List on,
+so x.github.io / x.pages.dev / x.firebaseapp.com are their own registered domains: one listed
+github.io site never flags the others. Only the bundled PSL snapshot is used (never downloaded).
+A name whose ending is not on the PSL at all (new TLDs, .test) uses its last two labels.
+
+Guards against poisoned feeds (phishing feeds sometimes list big legitimate names):
+  - public_suffix: a listed name that is itself a public suffix (github.io, co.uk) is skipped.
+  - official:      a listed name that is, or is under, a site in labels/official.txt is skipped.
+  - both_lists:    a listed name that is also in the `negatives` table (Tranco + official) is
+                   skipped, the same rule as labels/build_dataset.py.
+  - rule (b) never fires through a registered domain that is in `negatives` (as a host or as a
+    negative's domain) or in official.txt. The name itself still matches exactly.
+
+Refresh column: `rowid`. feeds.py inserts new rows with INSERT OR IGNORE (rowid only grows) and
+rewrites `last_seen` on EVERY existing row each pull, so "last_seen > last refresh" would re-read
+almost the whole table every hour. `first_seen` is stamped when a pull starts but committed when
+it ends, so a refresh in between could miss rows. If the table shrinks or is replaced (rowid going
+backwards, row count not adding up, a different file), refresh() falls back to a full reload.
+
+SQLite is opened read-only (mode=ro, timeout=30) for each load and closed straight after, so the
+feeds loop can keep writing (the DB is in WAL mode; readers never block it). Never queried per
+certificate. No network: no HTTP, DNS or RDAP anywhere in this module.
+
+CLI (prints names as plain text, never links):
+    python -m model.stage0 stats [--db PATH]
+    python -m model.stage0 check [--db PATH] host1 host2 ...
+    python -m model.stage0 bench [--db PATH] --names FILE_OR_RECORDING [--n 200000]
 """
+from __future__ import annotations
+
+import argparse
+import functools
+import gzip
+import json
+import logging
+import os
+import pathlib
+import sqlite3
+import sys
+import time
+from collections import Counter
+
+import tldextract
+
+from .features import ROOT, clean_host
+
+log = logging.getLogger("scamouflage.stage0")
+
+REFRESH_COLUMN = "rowid"
+OFFICIAL_FILE = os.path.join(ROOT, "labels", "official.txt")
+GUARDS = ("public_suffix", "official", "both_lists")
+
+# Bundled PSL snapshot only (suffix_list_urls=()), no disk cache, private domains on.
+_EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None,
+                                 include_psl_private_domains=True)
+
+
+def _psl_sets():
+    plain, wild, exc = set(), set(), set()
+    for s in _EXTRACT.tlds:
+        s = s.lower()
+        if s.startswith("*."):
+            wild.add(s[2:])
+        elif s.startswith("!"):
+            exc.add(s[1:])
+        else:
+            plain.add(s)
+    return plain, wild, exc
+
+
+_PSL, _PSL_WILD, _PSL_EXC = _psl_sets()
+
+
+def default_db_path() -> str:
+    """$LABELS_DB if set, else the shared ~/scamouflage-data/labels.db."""
+    return os.path.expanduser(os.environ.get("LABELS_DB") or "~/scamouflage-data/labels.db")
+
+
+def is_public_suffix(host: str) -> bool:
+    """True for names like "github.io" or "co.uk" that nobody can register as a site."""
+    if host in _PSL:
+        return True
+    if host in _PSL_EXC:
+        return False
+    parent = host.partition(".")[2]
+    return bool(parent) and parent in _PSL_WILD
+
+
+@functools.lru_cache(maxsize=1 << 16)
+def registered_domain(host: str) -> str | None:
+    """pay.ezpass.com-abc.win -> ezpass.com-abc.win, evil.github.io -> evil.github.io.
+    None if the name is itself a public suffix."""
+    e = _EXTRACT(host)
+    if e.suffix:
+        return f"{e.domain}.{e.suffix}" if e.domain else None
+    parts = host.rsplit(".", 2)  # ending not on the PSL: last two labels
+    return ".".join(parts[-2:]) if len(parts) >= 2 else None
+
+
+def _parents(host: str):
+    """a.b.c.d -> b.c.d, c.d  (every parent with at least two labels)."""
+    i = host.find(".")
+    while i != -1:
+        rest = host[i + 1:]
+        if "." not in rest:
+            return
+        yield rest
+        i = host.find(".", i + 1)
+
+
+def rss_mb() -> tuple[float, str]:
+    """(megabytes, "current" | "peak"). Linux reads /proc; elsewhere only the peak is known."""
+    try:
+        with open("/proc/self/statm") as f:
+            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1e6, "current"
+    except (OSError, ValueError):
+        import resource
+        r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return (r / 1e6 if sys.platform == "darwin" else r / 1e3), "peak"
 
 
 class KnownList:
-    def __init__(self, db_path=None):
-        self.db_path = db_path
-        self.hosts = set()
+    def __init__(self, db_path: str | None = None, official_file: str = OFFICIAL_FILE):
+        self.db_path = os.path.abspath(os.path.expanduser(db_path or default_db_path()))
+        if not os.path.exists(self.db_path):
+            raise FileNotFoundError(f"no labels DB at {self.db_path} (set LABELS_DB or pass db_path)")
+        self.official_file = official_file
+        t0 = time.perf_counter()
+        self._reset()
+        con = self._connect()
+        try:
+            con.execute("BEGIN")  # one consistent snapshot while the feeds loop writes
+            g = self._read_guards(con)
+            self._apply_guards(g)
+            self._read_rows(con, 0, g)
+        finally:
+            con.close()
+        self.load_seconds = time.perf_counter() - t0
+        log.info("Stage 0: %d hosts from %d rows in %.1f s", len(self.hosts), self.rows_seen,
+                 self.load_seconds)
 
-    def refresh(self) -> int:
-        return 0
+    # ------------------------------------------------------------------ loading
+    def _reset(self):
+        # host -> (brand, category, feed). The tuples are shared: one per distinct combination,
+        # so 500k+ hosts cost one dict slot each, not one object each.
+        self.hosts: dict[str, tuple] = {}
+        self._meta: dict[tuple, tuple] = {}
+        self._rd_blocked: set[str] = set()   # listed, but rule (b) must not fire through them
+        self._removed: dict[str, str] = {}   # host -> guard that removed it
+        self.removed_rows = Counter()        # guard -> rows removed
+        self.rows_seen = 0                   # rows read so far (everything up to the watermark)
+        self.junk_rows = 0                   # host empty / an IP / not a name after cleaning
+        self.duplicate_rows = 0              # same host from another feed
+        self.watermark = 0                   # highest rowid read
+        self._neg_fp = None                  # (count, max rowid) of negatives at the last read
+        self._official: frozenset = frozenset()
+        self.n_negatives = 0
+        self._inode = os.stat(self.db_path).st_ino
 
-    def check(self, host: str):
-        """Return {"brand": str|None, "category": str, "feed": str} if known, else None."""
+    def _connect(self) -> sqlite3.Connection:
+        uri = pathlib.Path(self.db_path).as_uri() + "?mode=ro"
+        return sqlite3.connect(uri, uri=True, timeout=30, isolation_level=None)
+
+    def _meta_for(self, brand, category, feed) -> tuple:
+        key = (brand or None, category or None, feed or None)
+        m = self._meta.get(key)
+        if m is None:
+            m = self._meta[key] = tuple(sys.intern(x) if x else None for x in key)
+        return m
+
+    def _read_guards(self, con) -> dict:
+        neg_hosts, neg_domains = set(), set()
+        fp = None
+        try:
+            for h, d in con.execute("SELECT host, domain FROM negatives"):
+                h, d = clean_host(h), clean_host(d)
+                if h:
+                    neg_hosts.add(h)
+                if d:
+                    neg_domains.add(d)
+            fp = tuple(con.execute("SELECT COUNT(*), MAX(rowid) FROM negatives").fetchone())
+        except sqlite3.OperationalError as e:
+            log.warning("Stage 0: no negatives table (%s); both_lists guard is off", e)
+        official = self._read_official()
+        # These sets (~300k names) are only kept while loading, never between refreshes.
+        return {"neg_hosts": neg_hosts, "official": official, "fp": fp,
+                "no_rd": neg_hosts | neg_domains | official}
+
+    def _read_official(self) -> frozenset:
+        out = set()
+        if self.official_file and os.path.exists(self.official_file):
+            with open(self.official_file, encoding="utf-8") as f:
+                for line in f:
+                    h = clean_host(line.split("#", 1)[0])
+                    if h:
+                        out.add(h)
+        return frozenset(out)
+
+    def _apply_guards(self, g: dict):
+        """(Re)check every loaded host against new negatives. One pass over the guard sets."""
+        self._neg_fp = g["fp"]
+        self._official = g["official"]
+        self.n_negatives = len(g["neg_hosts"])
+        for h in g["neg_hosts"] | g["official"]:
+            if h in self.hosts:
+                del self.hosts[h]
+                self._removed[h] = "official" if h in g["official"] else "both_lists"
+        self._rd_blocked = {h for h in g["no_rd"] if h in self.hosts}
+
+    @staticmethod
+    def _drop_reason(h: str, g: dict) -> str | None:
+        if is_public_suffix(h):
+            return "public_suffix"
+        if h in g["official"] or any(p in g["official"] for p in _parents(h)):
+            return "official"
+        if h in g["neg_hosts"]:
+            return "both_lists"
         return None
+
+    def _read_rows(self, con, after_rowid: int, g: dict) -> int:
+        """Load rows with rowid > after_rowid. Returns how many new hosts were added."""
+        hosts, added = self.hosts, 0
+        no_rd = g["no_rd"]
+        rows = con.execute(f"SELECT rowid, host, brand, category, feed FROM labels "
+                           f"WHERE rowid > ? ORDER BY rowid", (after_rowid,))
+        for rowid, raw, brand, category, feed in rows:
+            self.rows_seen += 1
+            self.watermark = rowid
+            h = clean_host(raw)
+            if not h:
+                self.junk_rows += 1
+                continue
+            old = hosts.get(h)
+            if old is not None:
+                self.duplicate_rows += 1
+                if old[0] is None and brand:  # keep the branded row's metadata
+                    hosts[h] = self._meta_for(brand, category, old[2])
+                continue
+            reason = self._removed.get(h) or self._drop_reason(h, g)
+            if reason:
+                self.removed_rows[reason] += 1
+                self._removed[h] = reason
+                continue
+            hosts[h] = self._meta_for(brand, category, feed)
+            added += 1
+            if h in no_rd:
+                self._rd_blocked.add(h)
+        return added
+
+    # ------------------------------------------------------------------ refresh
+    def refresh(self) -> int:
+        """Load only rows added since the last read. Returns how many new hosts were added.
+        Safe while the feeds loop writes (short read-only snapshot). Never raises."""
+        try:
+            if os.stat(self.db_path).st_ino != self._inode:
+                return self._full_reload("the DB file was replaced")
+            if self._read_official() != self._official:
+                return self._full_reload("labels/official.txt changed")
+            con = self._connect()
+            try:
+                con.execute("BEGIN")
+                max_rowid, total = con.execute("SELECT MAX(rowid), COUNT(*) FROM labels").fetchone()
+                max_rowid = max_rowid or 0
+                if max_rowid < self.watermark:
+                    return self._full_reload(f"max rowid went back ({max_rowid} < {self.watermark})")
+                new = con.execute("SELECT COUNT(*) FROM labels WHERE rowid > ?",
+                                  (self.watermark,)).fetchone()[0]
+                if total != self.rows_seen + new:
+                    return self._full_reload(f"row count {total} != {self.rows_seen} read + {new} new")
+                neg_fp = None
+                try:
+                    neg_fp = tuple(con.execute("SELECT COUNT(*), MAX(rowid) FROM negatives").fetchone())
+                except sqlite3.OperationalError:
+                    pass
+                if new == 0 and neg_fp == self._neg_fp:
+                    return 0
+                before = len(self.hosts)
+                g = self._read_guards(con)
+                if neg_fp != self._neg_fp:
+                    self._apply_guards(g)
+                added = self._read_rows(con, self.watermark, g)
+                del g
+            finally:
+                con.close()
+            if added or len(self.hosts) != before + added:
+                log.info("Stage 0 refresh: +%d hosts (%d now), watermark rowid %d",
+                         added, len(self.hosts), self.watermark)
+            return added
+        except Exception:
+            log.exception("Stage 0 refresh failed; keeping the current list")
+            return 0
+
+    def _full_reload(self, why: str) -> int:
+        log.warning("Stage 0: full reload because %s", why)
+        fresh = KnownList(self.db_path, self.official_file)
+        before = len(self.hosts)
+        self.__dict__.update(fresh.__dict__)  # swap in one step; check() keeps working
+        return max(0, len(self.hosts) - before)
+
+    # ------------------------------------------------------------------ check
+    def explain(self, host) -> tuple[dict | None, str | None, str | None]:
+        """(result, rule, listed name). rule is "exact" or "registered-domain". Never raises."""
+        try:
+            if not isinstance(host, str):
+                return None, None, None
+            h = clean_host(host)
+            if not h:
+                return None, None, None
+            hosts = self.hosts
+            meta = hosts.get(h)
+            if meta is not None:
+                return self._out(meta), "exact", h
+            # Rule (b). The registered domain is always one of the parents, so ask the PSL only
+            # when some parent is listed at all (almost never), and then only once (cached).
+            for p in _parents(h):
+                if p in hosts:
+                    rd = registered_domain(h)
+                    if rd and rd != h and rd not in self._rd_blocked:
+                        meta = hosts.get(rd)
+                        if meta is not None:
+                            return self._out(meta), "registered-domain", rd
+                    break
+            return None, None, None
+        except Exception:
+            return None, None, None
+
+    def check(self, host: str) -> dict | None:
+        """{"brand": str|None, "category": str|None, "feed": str|None} if known, else None."""
+        return self.explain(host)[0]
+
+    @staticmethod
+    def _out(meta: tuple) -> dict:
+        return {"brand": meta[0], "category": meta[1], "feed": meta[2]}
+
+    def __len__(self):
+        return len(self.hosts)
+
+    def __contains__(self, host):
+        return self.check(host) is not None
+
+    def summary(self) -> dict:
+        removed_hosts = Counter(self._removed.values())
+        return {
+            "db": self.db_path, "rows_read": self.rows_seen, "unique_hosts": len(self.hosts),
+            "duplicate_rows": self.duplicate_rows, "junk_rows": self.junk_rows,
+            "removed_rows": {g: self.removed_rows[g] for g in GUARDS},
+            "removed_hosts": {g: removed_hosts[g] for g in GUARDS},
+            "rule_b_blocked_hosts": len(self._rd_blocked),
+            "negatives_hosts": self.n_negatives,
+            "official_hosts": len(self._official),
+            "watermark_rowid": self.watermark, "refresh_column": REFRESH_COLUMN,
+            "load_seconds": round(self.load_seconds, 2),
+        }
+
+
+# ---------------------------------------------------------------------- CLI
+def _iter_names(path: str):
+    """Names from a text file (one per line) or a CT recording (.jsonl / .jsonl.gz)."""
+    if ".jsonl" in os.path.basename(path):
+        opener = gzip.open if path.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("message_type") != "certificate_update":
+                    continue
+                leaf = (msg.get("data") or {}).get("leaf_cert") or {}
+                yield from leaf.get("all_domains") or []
+    else:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    yield line
+
+
+def _load(db: str) -> tuple[KnownList, float, float, str]:
+    before, kind = rss_mb()
+    try:
+        kl = KnownList(db)
+    except FileNotFoundError as e:
+        sys.exit(f"error: {e}")
+    after, _ = rss_mb()
+    return kl, before, after, kind
+
+
+def cmd_stats(args):
+    kl, before, after, kind = _load(args.db)
+    s = kl.summary()
+    print(f"DB:                 {s['db']}")
+    print(f"rows read:          {s['rows_read']:,}  (watermark rowid {s['watermark_rowid']:,}, "
+          f"refresh column: {s['refresh_column']})")
+    print(f"unique hosts:       {s['unique_hosts']:,}")
+    print(f"duplicate rows:     {s['duplicate_rows']:,}  (same host on another feed)")
+    print(f"junk rows:          {s['junk_rows']:,}  (not a usable name after cleaning)")
+    print("guards (rows removed / unique hosts removed):")
+    for g in GUARDS:
+        print(f"  {g:14s}    {s['removed_rows'][g]:>8,} / {s['removed_hosts'][g]:,}")
+    print(f"  rule (b) off for  {s['rule_b_blocked_hosts']:>8,} listed hosts that are a negative's "
+          f"registered domain (still match exactly)")
+    print(f"guard inputs:       {s['negatives_hosts']:,} negatives hosts, "
+          f"{s['official_hosts']} official hosts, {len(_PSL):,} PSL suffixes "
+          f"(tldextract {tldextract.__version__}, bundled)")
+    cats = Counter(m[1] for m in kl.hosts.values())
+    brands = Counter(m[0] for m in kl.hosts.values() if m[0])
+    feeds = Counter(m[2] for m in kl.hosts.values())
+    print("categories (unique hosts): " + ", ".join(f"{c} {n:,}" for c, n in cats.most_common()))
+    print(f"branded hosts: {sum(brands.values()):,}; top brands: "
+          + ", ".join(f"{b} {n:,}" for b, n in brands.most_common(12)))
+    print("feed (first listed by): " + ", ".join(f"{f} {n:,}" for f, n in feeds.most_common(8)))
+    print(f"distinct metadata tuples: {len(kl._meta):,}")
+    print(f"load time:          {s['load_seconds']:.2f} s")
+    print(f"memory (RSS, {kind}): {before:,.1f} MB before load -> {after:,.1f} MB after "
+          f"(+{after - before:,.1f} MB)")
+    t0 = time.perf_counter()
+    n = kl.refresh()
+    print(f"refresh():          +{n:,} hosts in {time.perf_counter() - t0:.2f} s")
+
+
+def cmd_check(args):
+    kl, *_ = _load(args.db)
+    for raw in args.hosts:
+        res, rule, listed = kl.explain(raw)
+        if res:
+            via = f" via {listed}" if rule == "registered-domain" else ""
+            print(f"HIT   {raw}  rule={rule}{via}  brand={res['brand']}  category={res['category']}  "
+                  f"feed={res['feed']}")
+        else:
+            print(f"miss  {raw}")
+
+
+def cmd_bench(args):
+    kl, before, after, kind = _load(args.db)
+    names, certs = [], 0
+    t0 = time.perf_counter()
+    for name in _iter_names(args.names):
+        names.append(name)
+        if len(names) >= args.n:
+            break
+    print(f"read {len(names):,} names ({len(set(names)):,} unique) from {args.names} "
+          f"in {time.perf_counter() - t0:.1f} s")
+    registered_domain.cache_clear()  # cold cache: the honest number
+    check, hits = kl.check, []
+    t0 = time.perf_counter()
+    for n in names:
+        r = check(n)
+        if r is not None:
+            hits.append(n)
+    dt = time.perf_counter() - t0
+    print(f"checks/s:  {len(names) / dt:,.0f}  ({len(names):,} checks in {dt:.2f} s, one core)")
+    print(f"hits:      {len(hits):,}  ({len(set(hits)):,} unique names)  "
+          f"hit rate {len(hits) / max(1, len(names)):.4%}")
+    rules = Counter(kl.explain(h)[1] for h in hits)
+    print("by rule:   " + (", ".join(f"{r} {c:,}" for r, c in rules.most_common()) or "-"))
+    cats = Counter(kl.check(h)["category"] for h in hits)
+    print("by category: " + (", ".join(f"{c} {n:,}" for c, n in cats.most_common()) or "-"))
+    print(f"memory (RSS, {kind}): {before:,.1f} -> {after:,.1f} MB for the list; "
+          f"rd cache {registered_domain.cache_info().currsize:,} entries")
+    print("first 20 hits (plain text, do not open):")
+    seen = set()
+    for h in hits:
+        if h in seen:
+            continue
+        seen.add(h)
+        res, rule, listed = kl.explain(h)
+        via = f" via {listed}" if rule == "registered-domain" else ""
+        print(f"  {h}  [{rule}{via}; {res['category']}; {res['brand'] or '-'}; {res['feed']}]")
+        if len(seen) >= 20:
+            break
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="python -m model.stage0", description="Stage 0 known-scam list")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    for name in ("stats", "check", "bench"):
+        sp = sub.add_parser(name)
+        sp.add_argument("--db", default=default_db_path(), help="labels.db (default: $LABELS_DB "
+                        "or ~/scamouflage-data/labels.db)")
+        if name == "check":
+            sp.add_argument("hosts", nargs="+")
+        if name == "bench":
+            sp.add_argument("--names", required=True, help="text file (one name per line) or "
+                            "a CT recording ct-*.jsonl.gz")
+            sp.add_argument("--n", type=int, default=200_000)
+    args = p.parse_args(argv)
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    {"stats": cmd_stats, "check": cmd_check, "bench": cmd_bench}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()
