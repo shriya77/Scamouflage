@@ -4,6 +4,7 @@ Read-only: serves what other stations write.
   SQLite  data/scamouflage.db  -> alerts (consumer), seen (consumer), labels (B)
   JSON    data/stats.json (A), results.json (C), leadtime.json (B), hardware.json (D),
           cpacf_live.json (D)
+  PEM     data/alert_pubkey.pem (D)
 
 If a source is missing, the endpoint returns mock data with "source": "mock"
 so the dashboard can label simulated data. Real data -> "source": "live".
@@ -16,6 +17,7 @@ import os
 import random
 import re
 import sqlite3
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -30,9 +32,11 @@ if os.environ.get("SCAM_DB"):
     DATA_DIR = Path(os.environ.get("DATA_DIR", DB_PATH.parent))
 else:
     DB_PATH = DATA_DIR / "scamouflage.db"
+sys.path.insert(0, str(ROOT))  # backend/ and alerts/ live next to api/
 HOST = os.environ.get("API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("API_PORT", 8000))
 WS_POLL_SECONDS = 1.0
+WS_CPACF_EVERY = 2  # polls, i.e. every 2 s (cpacf_live.json refreshes every 2 s)
 
 
 # ---------------------------------------------------------------- helpers
@@ -78,7 +82,8 @@ def has_stage(conn):
 def fetch_alerts(limit=100, after_rowid=0, since=None, stage=None):
     """since: only alerts with seen_at > since (ISO string or unix seconds).
     stage: only alerts with that stage. Without a stage column every alert
-    counts as new, so stage=0 matches nothing and stage>0 matches everything."""
+    counts as new, so stage=0 matches nothing and stage>0 matches everything.
+    Rows with stage NULL (added before the column) count as stage 1."""
     conn = db()
     if conn is None:
         return None
@@ -90,7 +95,7 @@ def fetch_alerts(limit=100, after_rowid=0, since=None, stage=None):
             args.append(float(since) if since.replace(".", "", 1).isdigit() else since)
         if stage is not None:
             if has_stage(conn):
-                sql += " AND stage = ?"
+                sql += " AND COALESCE(stage, 1) = ?"
                 args.append(stage)
             elif stage == 0:
                 return []
@@ -235,12 +240,12 @@ async def alerts(request):
         if since:
             items = [a for a in items if a["seen_at"] > since]
         if stage is not None:
-            items = [a for a in items if a["stage"] == stage]
+            items = [a for a in items if a.get("stage", 1) == stage]
         return ok({"items": items[:limit]}, "mock")
     return ok({"items": rows}, "live")
 
 
-# Registered before /api/alerts/{id} so "summary" isn't taken as an id.
+# Registered before /api/alerts/{id} so "summary"/"pubkey" aren't taken as ids.
 @routes.get("/api/alerts/summary")
 async def alerts_summary(request):
     """known_total = stage 0, new_total = stage > 0. No stage column -> all new."""
@@ -262,9 +267,30 @@ async def alerts_summary(request):
             pass
         finally:
             conn.close()
-    known = sum(a["stage"] == 0 for a in MOCK_ALERTS)
+    known = sum(a.get("stage", 1) == 0 for a in MOCK_ALERTS)
     return ok({"known_total": known, "new_total": len(MOCK_ALERTS) - known,
                "total": len(MOCK_ALERTS), "stage_column": True}, "mock")
+
+
+@routes.get("/api/alerts/pubkey")
+async def alerts_pubkey(request):
+    """Public key for alert signatures (data/alert_pubkey.pem). No mock: a fake
+    key would make every alert look forged, so a missing key is a 503."""
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+        from alerts.sign import key_id_of
+        pem = (DATA_DIR / "alert_pubkey.pem").read_bytes()
+        pub = load_pem_public_key(pem)
+        if not isinstance(pub, Ed25519PublicKey):
+            raise ValueError("not an Ed25519 key")
+    except (ImportError, OSError, ValueError) as e:
+        why = "alert_pubkey.pem missing" if isinstance(e, FileNotFoundError) else str(e)
+        raise web.HTTPServiceUnavailable(
+            text=json.dumps({"error": f"alert public key unavailable: {why}"}),
+            content_type="application/json")
+    return ok({"key_id": key_id_of(pub), "alg": "Ed25519",
+               "public_key_pem": pem.decode()}, "live")
 
 
 @routes.get("/api/alerts/{id}")
@@ -310,15 +336,24 @@ async def health(request):
 
 @routes.get("/ws/live")
 async def ws_live(request):
-    """Pushes {"type":"stats"} every second and {"type":"alert"} per new alert."""
+    """Pushes {"type":"stats"} every second, {"type":"cpacf"} every 2 s and
+    {"type":"alert"} per new alert."""
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
     last_rowid = None
+    tick = 0
     try:
         while not ws.closed:
             stats = read_json("stats.json")
             await ws.send_json({"type": "stats", "source": "live" if stats else "mock",
                                 "data": stats or MOCK["stats.json"]})
+            if tick % WS_CPACF_EVERY == 0:
+                cpacf = read_json("cpacf_live.json")
+                await ws.send_json({"type": "cpacf",
+                                    "source": "live" if cpacf is not None else "mock",
+                                    "data": cpacf if cpacf is not None
+                                    else MOCK["cpacf_live.json"]})
+            tick += 1
 
             rows = fetch_alerts(50, after_rowid=last_rowid or 0)
             if rows is None:
@@ -356,8 +391,6 @@ def make_app():
     app = web.Application(middlewares=[cors])
     app.add_routes(routes)
     try:  # Shriya's blocklist route for the Chrome extension
-        import sys
-        sys.path.insert(0, str(ROOT))
         from backend.blocklist_route import setup_blocklist_route
         setup_blocklist_route(app)
         print("blocklist route: on")
