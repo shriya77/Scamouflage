@@ -24,10 +24,11 @@ from model.stage3 import is_risky_registrar, verify  # noqa: E402
 
 
 def isolated(fn):
-    """Run the test against a fresh, temporary cache."""
+    """Run the test against a fresh, temporary cache (and no leftover 429 pause)."""
     def run():
         d = tempfile.mkdtemp(prefix="stage3-test-")
         stage3.set_cache_path(os.path.join(d, "rdap_cache.db"))
+        stage3._RATE_LIMITER._next = 0.0
         try:
             fn()
         finally:
@@ -162,6 +163,17 @@ def test_rate_limited_then_answer():
     with mock.patch("requests.get", side_effect=answers):
         res = verify("busy-registry.test", timeout=1.0)
     assert res["ok"] is True and res["error"] is None
+
+
+def test_rate_limiter_spacing_and_429_pause():
+    rl = stage3.RateLimiter(min_interval=0.05)
+    t0 = time.monotonic()
+    rl.wait(); rl.wait(); rl.wait()
+    assert time.monotonic() - t0 >= 0.1                 # 3 calls, 2 gaps
+    rl.penalize(0.2)
+    t1 = time.monotonic()
+    rl.wait()
+    assert time.monotonic() - t1 >= 0.19                # everyone waits after a 429
 
 
 @isolated

@@ -29,8 +29,9 @@ Caching & Rate Limiting:
       are cached: found for 24 h, not_found for 6 h. Timeouts, 429s and other errors are NEVER
       cached, so a blip does not hide a domain for a day. age_days is recomputed from
       registered_at on every cache hit, so it never goes stale.
-    - Rate limit: max 2 requests/second to rdap.org (per process; Stage 3 runs in one worker)
-    - On HTTP 429: wait (Retry-After, capped at 5 s, else 2 s) and retry once
+    - Rate limit: 1 request/second to rdap.org by default (spec max is 2/s; $SCAM_RDAP_INTERVAL),
+      per process (Stage 3 runs in one worker)
+    - On HTTP 429: every caller pauses (Retry-After, capped at 30 s, else 10 s), then one retry
 """
 import argparse
 import collections
@@ -112,22 +113,29 @@ def is_risky_registrar(name: str | None) -> bool:
 # Rate limiting (max 2 requests/second)
 # ---------------------------------------------------------------------------
 class RateLimiter:
-    """Enforces at least min_interval seconds between consecutive requests."""
-    def __init__(self, min_interval: float = 0.5):
+    """Enforces at least min_interval seconds between consecutive requests, and a shared pause
+    after a 429 (every caller waits, not only the one that was refused)."""
+    def __init__(self, min_interval: float = 1.0):
         self.min_interval = min_interval
-        self._last_call = 0.0
+        self._next = 0.0
         self._lock = threading.Lock()
 
     def wait(self):
         with self._lock:
-            now = time.monotonic()
-            elapsed = now - self._last_call
-            if elapsed < self.min_interval:
-                time.sleep(self.min_interval - elapsed)
-            self._last_call = time.monotonic()
+            delay = self._next - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            self._next = time.monotonic() + self.min_interval
+
+    def penalize(self, seconds: float):
+        """After a 429: nobody asks again for `seconds`."""
+        with self._lock:
+            self._next = max(self._next, time.monotonic() + seconds)
 
 
-_RATE_LIMITER = RateLimiter(min_interval=0.5)
+# 1 request/second: the spec allows at most 2/s, but at 2/s rdap.org answered 429 to a quarter
+# of 150 lookups (VM, 2026-10-17).
+_RATE_LIMITER = RateLimiter(min_interval=float(os.environ.get("SCAM_RDAP_INTERVAL", "1.0")))
 
 
 # ---------------------------------------------------------------------------
@@ -371,11 +379,11 @@ def _extract_registrar(entities: list | None) -> str | None:
 
 
 def _retry_after(resp) -> float:
-    """Seconds to wait after a 429: the Retry-After header (capped at 5 s), else 2 s."""
+    """Seconds to pause after a 429: the Retry-After header (capped at 30 s), else 10 s."""
     try:
-        return min(5.0, max(0.5, float(resp.headers.get("Retry-After"))))
+        return min(30.0, max(0.0, float(resp.headers.get("Retry-After"))))
     except Exception:
-        return 2.0
+        return 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +478,7 @@ def _verify(host: str, timeout: float) -> dict:
                 break
             elif resp.status_code == 429:
                 if attempt == 0:
-                    time.sleep(_retry_after(resp))
+                    _RATE_LIMITER.penalize(_retry_after(resp))   # the retry waits in wait()
                     continue
                 result["error"] = "rate_limited"
                 break
