@@ -13,6 +13,7 @@ const CONFIG = {
   ENDPOINTS: {
     stats:   '/api/stats',       // live pipeline counters (+ recent domain names for the firehose, when added)
     alerts:  '/api/alerts',      // { items: [...] }
+    catches: '/api/alerts?limit=200', // "Latest 15 scams" tab: filtered and deduped on the client
     summary: '/api/alerts/summary', // { known_total, new_total, total }
     results: '/api/results',     // model evaluation: precision, recall, pr_auc, false_alarms_per_10k, baselines
     leadtime: '/api/leadtime',   // median_days, share_before_any_feed, n
@@ -304,7 +305,6 @@ function timeAgo(d) {
   return d.toLocaleDateString();
 }
 const level = s => s >= .9 ? 'high' : s >= .75 ? 'mid' : 'low';
-const levelColor = { high: 'var(--risk)', mid: 'var(--warn)', low: 'var(--sage)' };
 const CAT = {
   toll: { label: 'Toll', icon: '🚗' }, delivery: { label: 'Delivery', icon: '📦' },
   gov: { label: 'Government', icon: '🏛️' }, other: { label: 'Other', icon: '❔' },
@@ -582,63 +582,103 @@ function chipFrame(now) {
 }
 
 // =================================================================
-// LATEST CATCHES tab
+// LATEST 15 SCAMS tab
 // =================================================================
+const SCAM_CATEGORIES = new Set(['toll', 'delivery', 'gov']);
+const decidedMs = a => toDate(a.decided_at)?.getTime() || 0;   // ISO UTC; missing sorts last
+// Only https://crt.sh/ links are ever clickable. Scam domains stay plain text.
+const crtshLink = u => (typeof u === 'string' && u.startsWith('https://crt.sh/')) ? u : null;
+
+// /api/alerts?limit=200 -> toll/delivery/gov only, newest decided_at first, one row per cert_id, first 15
+function latestScams(raw) {
+  const rows = (raw?.items || [])
+    .filter(a => SCAM_CATEGORIES.has(String(a.category ?? '').toLowerCase()))
+    .sort((x, y) => decidedMs(y) - decidedMs(x));   // stable: ties keep the API's newest-first order
+  const seen = new Set(), out = [];
+  for (const a of rows) {
+    if (a.cert_id != null) {
+      if (seen.has(a.cert_id)) continue;           // already have this cert's newest row
+      seen.add(a.cert_id);
+    }
+    out.push({
+      ...normalizeAlert(a),                        // stage null -> undefined, so isKnown() treats it as new
+      category: String(a.category).toLowerCase(),
+      brand: a.brand, ageDays: a.age_days, registrar: a.registrar,
+      decided: toDate(a.decided_at), decidedRaw: a.decided_at,
+      crtsh: crtshLink(a.crtsh_url),
+    });
+    if (out.length === CONFIG.CATCHES_LIMIT) break;
+  }
+  return out;
+}
+
+function fmtAge(days) {
+  const d = Number(days);
+  if (days == null || isNaN(d)) return null;
+  if (d < 1) return `${Math.max(1, Math.round(d * 24))} h`;
+  return `${d < 10 ? d.toFixed(1) : Math.round(d)} days`;
+}
+
 async function loadCatches() {
   const btn = $('#refresh-btn');
   btn.disabled = true; btn.textContent = 'Loading…';
-  const raw = await getJSON('alerts');
-  setSim('alerts', !raw);
-  renderCatches(raw ? normalizeAlerts(raw).slice(0, CONFIG.CATCHES_LIMIT) : []);
+  const raw = await getJSON('catches');
+  renderCatches(raw ? latestScams(raw) : [], !!raw);
   btn.disabled = false; btn.textContent = '↻ Refresh';
 }
-function renderCatches(list) {
-  const ol = $('#catch-list');
-  ol.replaceChildren();
-  $('#catch-empty').hidden = list.length > 0;
-  list.forEach((a, i) => {
-    const lv = level(a.score);
-    const li = el('li', 'catch');
-    const main = el('button', 'catch-main'); main.type = 'button';
-    main.append(el('div', `score-pill ${lv}`, Math.round(a.score * 100)));
-    const info = el('div');
-    info.append(el('div', 'catch-domain', a.domain));
-    const meta = el('div', 'catch-meta');
-    meta.append(el('span', 'cat-chip', (CAT[a.category] || CAT.other).label));
-    if (a.stage != null) meta.append(el('span', `stage-chip ${isKnown(a) ? 'known' : 'new'}`, isKnown(a) ? 'Already on a known list' : 'New catch'));
-    if (a.time) meta.append(el('span', null, timeAgo(a.time)));
-    info.append(meta);
-    main.append(info);
-    main.append(a.sealed === true ? el('span', 'seal ok', '✓ Sealed on IBM CPACF') : el('span'));
-    main.append(el('span', 'chev', '›'));
-
-    const detail = el('div', 'catch-detail'); detail.hidden = true;
-    const bar = el('div', 'score-bar'); const fill = el('i');
-    fill.style.width = (a.score * 100) + '%'; fill.style.background = levelColor[lv];
-    bar.append(fill);
-    detail.append(el('div', 'fine', `Scam score ${Math.round(a.score * 100)} out of 100`), bar);
-    if (a.reasons.length) {
-      const rs = el('div', 'reasons');
-      a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
-      detail.append(el('div', 'fine', 'Why the AI flagged it'), rs);
-    }
-    const links = el('div', 'detail-links');
-    const crt = el('a', null, '↗ View public certificate record (crt.sh)');
-    crt.href = a.crtsh; crt.target = '_blank'; crt.rel = 'noopener noreferrer';
-    links.append(crt);
-    if (a.campaign) links.append(el('span', null, `Campaign: ${a.campaign}`));
-    if (a.confirmedBy) links.append(el('span', null, `✓ Confirmed by ${a.confirmedBy === true ? 'a public phishing feed' : a.confirmedBy}`));
-    detail.append(links);
-
-    main.addEventListener('click', () => {
-      const open = detail.hidden;
-      detail.hidden = !open; li.classList.toggle('open', open);
-      main.setAttribute('aria-expanded', String(open));
-    });
-    li.append(main, detail);
-    if (i === 0) { detail.hidden = false; li.classList.add('open'); }
-    ol.append(li);
+function renderCatches(list, reached) {
+  const fresh = list.filter(a => !isKnown(a)), known = list.filter(isKnown);
+  [['new', fresh], ['known', known]].forEach(([key, rows]) => {
+    $(`#group-${key}`).hidden = rows.length === 0;
+    $(`#count-${key}`).textContent = rows.length;
+    $(`#list-${key}`).replaceChildren(...rows.map(scamRow));
   });
+  const empty = $('#catch-empty');
+  empty.hidden = list.length > 0;
+  empty.textContent = reached
+    ? 'No toll, delivery or government scams yet. New ones show up here as soon as they\'re found.'
+    : 'Can\'t reach the server right now. Try Refresh in a moment.';
+}
+function scamRow(a) {
+  const lv = level(a.score);
+  const li = el('li', 'catch open');
+  const main = el('div', 'catch-main static');
+  const pill = el('div', `score-pill ${lv}`, Math.round(a.score * 100));
+  pill.title = `Score ${a.score.toFixed(3)}`;
+  main.append(pill);
+
+  const info = el('div');
+  info.append(el('div', 'catch-domain', a.domain));   // plain text, never a link
+  const meta = el('div', 'catch-meta');
+  meta.append(el('span', 'cat-chip', (CAT[a.category] || CAT.other).label));
+  if (isKnown(a)) meta.append(el('span', 'stage-chip known', 'Known · already on a scam list'));
+  if (a.brand) meta.append(el('span', null, `Brand: ${a.brand}`));
+  if (a.decided) {
+    const t = el('span', null, `Flagged ${timeAgo(a.decided)}`);
+    t.title = a.decidedRaw;
+    meta.append(t);
+  }
+  info.append(meta);
+  main.append(info);
+
+  const detail = el('div', 'catch-detail');
+  if (a.reasons.length) {
+    const rs = el('div', 'reasons');
+    a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
+    detail.append(rs);
+  }
+  const facts = el('div', 'detail-links');
+  const age = fmtAge(a.ageDays);
+  facts.append(el('span', null, `Domain age: ${age ?? 'unknown'}`),
+               el('span', null, `Registrar: ${a.registrar || 'unknown'}`));
+  if (a.crtsh) {
+    const crt = el('a', null, '↗ Public certificate record (crt.sh)');
+    crt.href = a.crtsh; crt.target = '_blank'; crt.rel = 'noopener noreferrer';
+    facts.append(crt);
+  }
+  detail.append(facts);
+  li.append(main, detail);
+  return li;
 }
 
 // =================================================================
@@ -674,3 +714,4 @@ $('#howto-btn').addEventListener('click', () => $('#install-steps').scrollIntoVi
 buildChip();
 requestAnimationFrame(raceFrame);
 showTab(location.hash.slice(1) || 'dashboard');
+if (location.hash.slice(1) !== 'catches') loadCatches();   // fill "Latest 15 scams" on every page load

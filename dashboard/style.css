@@ -212,6 +212,12 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 48px; }
 .detail-links { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13.5px; color: var(--muted); }
 .detail-links a { text-decoration: none; font-weight: 500; }
 .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+.catch-group { margin-bottom: 28px; }
+.catch-group h3 { display: flex; align-items: center; gap: 8px; font-size: 20px; }
+.catch-group .card-sub { margin-bottom: 12px; }
+.group-count { font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--mist); color: var(--muted); }
+.catch-main.static { cursor: default; grid-template-columns: 56px 1fr; }
+@media (max-width: 640px) { .catch-main.static { grid-template-columns: 48px 1fr; } }
 
 /* ---------- Buttons ---------- */
 .btn {
