@@ -2,7 +2,8 @@
 
 Read-only: serves what other stations write.
   SQLite  data/scamouflage.db  -> alerts (consumer), seen (consumer), labels (B)
-  JSON    data/stats.json (A), results.json (C), leadtime.json (B), hardware.json (D)
+  JSON    data/stats.json (A), results.json (C), leadtime.json (B), hardware.json (D),
+          cpacf_live.json (D)
 
 If a source is missing, the endpoint returns mock data with "source": "mock"
 so the dashboard can label simulated data. Real data -> "source": "live".
@@ -165,6 +166,13 @@ MOCK = {
                       "share_before_any_feed": 0.0, "n": 0},
     "hardware.json": {"machine": "unknown", "nnpa": False,
                       "cpacf_on": {}, "cpacf_off": {}, "speedup": {}},
+    # Same shape as D's "cpacfstats missing" output (CONTRACTS.md section 4).
+    "cpacf_live.json": {"ts": 0, "interval_s": 2, "available": False,
+                        "totals": {}, "rates_per_s": {},
+                        "groups": {"ecdsa_verify_per_s": 0.0, "eddsa_sign_per_s": 0.0,
+                                   "eddsa_verify_per_s": 0.0, "sha_per_s": 0.0,
+                                   "aes_per_s": 0.0, "trng_per_s": 0.0},
+                        "error": "cpacf_live.json not found"},
 }
 
 
@@ -173,11 +181,12 @@ MOCK = {
 routes = web.RouteTableDef()
 
 
-def json_file_route(path, filename):
-    @routes.get(path)
+def json_file_route(path, filename, *aliases):
     async def handler(request):
         data = read_json(filename)
         return ok(data, "live") if data is not None else ok(MOCK[filename], "mock")
+    for p in (path, *aliases):
+        routes.get(p)(handler)
     return handler
 
 
@@ -185,6 +194,7 @@ json_file_route("/api/stats", "stats.json")
 json_file_route("/api/results", "results.json")
 json_file_route("/api/leadtime", "leadtime.json")
 json_file_route("/api/hardware", "hardware.json")
+json_file_route("/api/cpacf/live", "cpacf_live.json", "/api/cpacf")
 
 
 @routes.get("/api/alerts")
