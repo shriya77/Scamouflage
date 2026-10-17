@@ -14,7 +14,8 @@ const CONFIG = {
     stats:   '/api/stats',       // live pipeline counters (+ recent domain names for the firehose, when added)
     alerts:  '/api/alerts',      // { items: [...] }
     summary: '/api/alerts/summary', // { known_total, new_total, total }
-    results: '/api/results',     // model evaluation: false alarms/day, recall, precision, lead time
+    results: '/api/results',     // model evaluation: precision, recall, pr_auc, false_alarms_per_10k, baselines
+    leadtime: '/api/leadtime',   // median_days, share_before_any_feed, n
     bench:   '/api/hardware',    // CPACF on/off benchmark (static, fetched once)
     cpacf:   '/api/cpacf/live',  // live CPACF activity counters
   },
@@ -315,10 +316,10 @@ const CAT = {
 let benchCache = null;
 let simTick = 0;
 async function loadDashboard() {
-  const [statsRaw, alertsRaw, resultsRaw, benchRaw, cpacfRaw, summaryRaw] = await Promise.all([
+  const [statsRaw, alertsRaw, resultsRaw, benchRaw, cpacfRaw, summaryRaw, leadRaw] = await Promise.all([
     getJSON('stats'), getJSON('alerts'), getJSON('results'),
     benchCache ? Promise.resolve(benchCache) : getJSON('bench'),
-    getJSON('cpacf'), getJSON('summary'),
+    getJSON('cpacf'), getJSON('summary'), getJSON('leadtime'),
   ]);
   if (benchRaw?.results) benchCache = benchRaw;
 
@@ -378,7 +379,7 @@ async function loadDashboard() {
   renderBreakdown(categories);
 
   // ---- Accuracy: real results or "Evaluation running…" ----
-  renderResults(resultsRaw);
+  renderResults(resultsRaw, leadRaw, stats.rate);
 
   // ---- IBM panel ----
   renderBench(bench);
@@ -405,16 +406,28 @@ function renderBreakdown(cats) {
   });
 }
 
-function renderResults(raw) {
+function renderResults(raw, lead, certsPerSec) {
+  // /api/results: { precision, recall, pr_auc, false_alarms_per_10k, baselines: { unit42_regex, keyword_rule } }
+  // /api/leadtime: { median_days, min_days, max_days, share_before_any_feed, n }
   const r = raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results) ? raw.results : raw;
-  const faDay  = pick(r, 'false_alarms_per_day', 'fa_per_day', 'false_alarms_day');
   const recall = pick(r, 'recall', 'test_recall');
   const prec   = pick(r, 'precision', 'test_precision');
+  const prAuc  = pick(r, 'pr_auc');
   const fa10k  = pick(r, 'false_alarms_per_10k', 'fa_per_10k');
-  const leadH  = pick(r, 'median_lead_hours', 'lead_time_median_h', 'lead_hours_median', 'median_lead_h');
+  let faDay    = pick(r, 'false_alarms_per_day', 'fa_per_day', 'false_alarms_day');
+  let faDayEstimated = false;
+  if (faDay == null && fa10k != null && certsPerSec) {
+    // false alarms per day = (false alarms per 10,000 certs) x (certs per day / 10,000)
+    faDay = Math.round(fa10k / 10000 * certsPerSec * 86400);
+    faDayEstimated = true;
+  }
+  const leadOk = lead && Number(lead.n) > 0;
+  const leadDays = leadOk ? pick(lead, 'median_days') : null;
+  const leadShare = leadOk ? pick(lead, 'share_before_any_feed') : null;
+
   const box = $('#metrics');
-  const hasAny = [faDay, recall, prec, fa10k, leadH].some(v => v != null && !isNaN(v));
-  const key = JSON.stringify([faDay, recall, prec, fa10k, leadH]);
+  const hasAny = [faDay, recall, prec, fa10k].some(v => v != null && !isNaN(v)) || leadOk;
+  const key = JSON.stringify([faDay, recall, prec, prAuc, fa10k, leadDays, leadShare, lead?.n, r?.baselines]);
   if (box.dataset.key === key) return;          // avoid re-rendering every poll
   box.dataset.key = key;
   box.replaceChildren();
@@ -429,23 +442,50 @@ function renderResults(raw) {
   const pct = v => Math.round(v <= 1 ? v * 100 : v) + '%';
   if (faDay != null) {
     const h = el('div', 'metric metric-hero');
-    h.append(el('div', 'metric-value', (+faDay).toFixed(faDay < 10 ? 1 : 0)),
+    h.append(el('div', 'metric-value', fmt(faDay)),
       el('div', 'metric-label', 'False alarms per day'),
-      el('div', 'metric-tech', 'Normal websites wrongly flagged, out of the full live stream'));
+      el('div', 'metric-tech', faDayEstimated
+        ? `Estimated: ${(+fa10k).toFixed(2)} per 10,000 certificates × today's live rate of ${fmt(certsPerSec)}/s`
+        : 'Normal websites wrongly flagged, out of the full live stream'));
     box.append(h);
   }
   const grid = el('div', 'metrics');
   const tiles = [];
   if (recall != null) tiles.push([pct(recall), 'Scams caught', 'Recall on held-out test set']);
   if (prec != null) tiles.push([pct(prec), 'Right when it warns', 'Precision']);
-  if (fa10k != null) tiles.push([(+fa10k).toFixed(1), 'False alarms per 10,000 sites', 'Threshold set on training data only']);
-  if (leadH != null) tiles.push([leadH >= 48 ? `${(leadH / 24).toFixed(1)} days` : `${Math.round(leadH)} h`, 'Head start on public blocklists', 'Median lead time']);
+  if (leadDays != null) tiles.push([leadDays < 2 ? `${Math.round(leadDays * 24)} h` : `${(+leadDays).toFixed(1)} days`, 'Head start on public blocklists', `Median over ${fmt(lead.n)} catches`]);
+  if (leadShare != null) tiles.push([pct(leadShare), 'Caught before any public feed', 'Share of catches we flagged first']);
+  if (prAuc != null && tiles.length < 4) tiles.push([(+prAuc).toFixed(2), 'PR-AUC', 'Overall ranking quality (1.0 is perfect)']);
   tiles.forEach(([val, label, tech]) => {
     const t = el('div', 'metric');
     t.append(el('div', 'metric-value', val), el('div', 'metric-label', label), el('div', 'metric-tech', tech));
     grid.append(t);
   });
   if (tiles.length) box.append(grid);
+
+  // Model vs. simple baselines (only rows that have numbers)
+  const rows = [['Scamouflage AI', { recall, precision: prec, false_alarms_per_10k: fa10k }, true]];
+  const b = r?.baselines || {};
+  if (b.unit42_regex) rows.push(['Unit 42 regex patterns', b.unit42_regex, false]);
+  if (b.keyword_rule) rows.push(['Keyword rule', b.keyword_rule, false]);
+  const filled = rows.filter(([, v]) => v && ['recall', 'precision', 'false_alarms_per_10k'].some(k => v[k] != null));
+  if (filled.length > 1) {
+    const table = el('table', 'baseline-table');
+    const head = el('tr');
+    ['', 'Scams caught', 'Right when it warns', 'False alarms / 10k'].forEach(h => head.append(el('th', null, h)));
+    table.append(head);
+    filled.forEach(([name, v, ours]) => {
+      const tr = el('tr', ours ? 'ours' : '');
+      tr.append(el('td', null, name),
+        el('td', null, v.recall != null ? pct(v.recall) : '–'),
+        el('td', null, v.precision != null ? pct(v.precision) : '–'),
+        el('td', null, v.false_alarms_per_10k != null ? (+v.false_alarms_per_10k).toFixed(+v.false_alarms_per_10k < 1 ? 2 : 1) : '–'));
+      table.append(tr);
+    });
+    const wrap = el('div', 'baseline-wrap');
+    wrap.append(el('div', 'fine', 'Compared with simple rules on the same test set'), table);
+    box.append(wrap);
+  }
 }
 
 // ---------- IBM chip + race ----------
