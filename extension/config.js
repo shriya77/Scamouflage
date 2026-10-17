@@ -14,12 +14,12 @@
  * so it attaches to `self` (which is `window` in pages).
  */
 self.SCAMOUFLAGE_CONFIG = Object.freeze({
-  // Where the TollTrap backend is. We reach the VM through an SSH tunnel:
+  // Where the Scamouflage backend is. We reach the VM through an SSH tunnel:
   //   ssh -L 8000:localhost:8000 user@vm
   // Users can change this on the options page.
   DEFAULT_BACKEND_URL: 'http://localhost:8000',
 
-  // The TollTrap dashboard opened from the popup. Editable on the options page.
+  // The Scamouflage dashboard opened from the popup. Editable on the options page.
   DEFAULT_DASHBOARD_URL: 'http://localhost:8000/',
 
   // How often to download a fresh list (chrome.alarms, minutes).

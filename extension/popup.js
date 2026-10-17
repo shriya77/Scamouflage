@@ -57,11 +57,17 @@
     detail.textContent = '';
     reasonsEl.textContent = '';
     reasonsEl.hidden = true;
+    $('score-meter').hidden = true;
 
     switch (check.status) {
       case 'flagged': {
         const entry = check.entry || {};
-        title.textContent = 'Flagged as a likely scam (score ' + M.formatScore(entry.score) + ')';
+        title.textContent = 'Flagged as a likely scam';
+        if (typeof entry.score === 'number') {
+          $('score-fill').style.width = Math.round(Math.min(1, Math.max(0, entry.score)) * 100) + '%';
+          $('score-label').textContent = 'Score ' + M.formatScore(entry.score);
+          $('score-meter').hidden = false;
+        }
         if (check.matched && check.matched !== check.hostname) {
           detail.textContent = 'Matched through ' + check.matched + '.';
         }
@@ -96,9 +102,27 @@
   }
 
   // ---- Step 3: render list info ----------------------------------------------
+  function formatCount(n) {
+    return Number(n).toLocaleString();
+  }
+
   function renderList(list) {
     $('demo-pill').hidden = !list.demoMode;
-    $('entry-count').textContent = list.loaded ? String(list.entryCount) : '–';
+    $('live-pill').hidden = list.demoMode || !list.loaded;
+
+    // "Compared against N flagged sites". Older lists don't report the site
+    // count, so fall back to the number of hashed entries.
+    if (!list.loaded) {
+      $('entry-count').textContent = '–';
+      $('entry-count-sub').textContent = 'no list loaded';
+    } else if (list.flaggedHostnames != null) {
+      $('entry-count').textContent = formatCount(list.flaggedHostnames);
+      $('entry-count-sub').textContent = list.flaggedHostnames === 1 ? 'flagged site' : 'flagged sites';
+    } else {
+      $('entry-count').textContent = formatCount(list.entryCount);
+      $('entry-count-sub').textContent = 'list entries';
+    }
+
     $('last-sync').textContent = list.demoMode ? 'bundled demo list' : timeAgo(list.lastSuccessAt);
     $('list-source').textContent = list.loaded ? (list.source || 'live') : 'none';
 
@@ -109,7 +133,47 @@
     $('sync-error').hidden = !errorText;
   }
 
+  // ---- Step 4: alert mode ------------------------------------------------------
+  // background.js opens this popup by itself when a flagged site is opened,
+  // and leaves an alert record for that tab. Show it as a red scam alert.
+  function renderAlert(alert, tabId) {
+    document.body.classList.add('alerting');
+    $('alert').hidden = false;
+    $('alert-host').textContent = alert.hostname || '';
+    if (alert.matched && alert.matched !== alert.hostname) {
+      $('alert-matched').textContent = 'Part of ' + alert.matched + ', which is on the list.';
+      $('alert-matched').hidden = false;
+    }
+    if (typeof alert.score === 'number') {
+      $('alert-fill').style.width = Math.round(Math.min(1, Math.max(0, alert.score)) * 100) + '%';
+      $('alert-score').textContent = 'Score ' + M.formatScore(alert.score);
+      $('alert-meter').hidden = false;
+    }
+    const list = $('alert-reasons');
+    list.textContent = '';
+    for (const code of alert.reasons || []) {
+      const li = document.createElement('li');
+      li.textContent = M.explainReason(code);
+      list.appendChild(li);
+    }
+    list.hidden = !(alert.reasons && alert.reasons.length);
+
+    $('alert-ok').addEventListener('click', async () => {
+      await chrome.runtime.sendMessage({ type: 'dismissAlert', tabId });
+      window.close();
+    }, { once: true });
+  }
+
   async function refresh() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.id !== undefined && !document.body.classList.contains('alerting')) {
+      const res = await chrome.runtime.sendMessage({ type: 'getTabAlert', tabId: tab.id });
+      if (res && res.alert) {
+        renderAlert(res.alert, tab.id);
+        renderList(res.list);
+        return;
+      }
+    }
     const url = await currentUrl();
     const res = await chrome.runtime.sendMessage({ type: 'checkUrl', url });
     if (res && res.check) renderStatus(res.check, res.list);

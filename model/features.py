@@ -41,6 +41,11 @@ OFFICIAL = set(_read_list(os.path.join(ROOT, "labels", "official.txt")))
 # letters away from ordinary words (codex, class, tools, titan) and let lots of normal sites through the gate.
 TYPO_TARGETS = [(w, set(w), c) for w, c in BRANDS if len(w) >= 6 and "-" not in w]
 
+# Registered domains that host many different scam pages (weebly.com, 000webhostapp.com, ...). Generated from
+# our own known-scam list by labels/hosting_platforms.py. On these, a domain's age belongs to the platform,
+# not to whoever made the page, so Stage 3's "old domain -> probably a real business" rule must not apply.
+HOSTING_PLATFORMS = set(_read_list(os.path.join(ROOT, "labels", "hosting_platforms.txt")))
+
 # Cheap / abused endings seen in smishing reports (Unit 42 and others). Tunable.
 RISKY_TLDS = {
     "xin", "win", "top", "vip", "icu", "bid", "cfd", "sbs", "shop", "online", "site", "xyz", "live",
@@ -154,6 +159,40 @@ def brand_hits(text):
         elif w in text:
             hits.append((w, c))
     return hits
+
+
+_LURE_SET = None
+
+
+def brand_whole_word(host):
+    """True if a brand word appears as a WHOLE word in the subdomain/owner name: its own token (usps, dhl), or
+    glued only to digits or a lure word (ezpasspay, paytoll, usps24). False for brands hidden inside other
+    words (irshadwoodworks -> 'irs', coffeepass -> 'epass', denvercuredelivery -> 'redeliver')."""
+    global _LURE_SET
+    if _LURE_SET is None:
+        _LURE_SET = set(LURE_WORDS)
+    sub, name, _ = split_host(host)
+    for t in _tokens(f"{sub}.{name}"):
+        for w, _c in BRANDS:
+            if t == w:
+                return True
+            if t.startswith(w) and len(t) > len(w):
+                rest = t[len(w):]
+                if rest.isdigit() or rest in _LURE_SET:
+                    return True
+            if t.endswith(w) and len(t) > len(w):
+                rest = t[:-len(w)]
+                if rest.isdigit() or rest in _LURE_SET:
+                    return True
+    return False
+
+
+def on_hosting_platform(host):
+    """True if the host sits on (or is) a known scam-hosting platform from labels/hosting_platforms.txt."""
+    if not HOSTING_PLATFORMS:
+        return False
+    parts = host.split(".")
+    return any(".".join(parts[i:]) in HOSTING_PLATFORMS for i in range(len(parts) - 1))
 
 
 def _lev_le(a, b, k):

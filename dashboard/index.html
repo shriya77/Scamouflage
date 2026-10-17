@@ -33,7 +33,7 @@
   <!-- ============ DASHBOARD ============ -->
   <section class="tab-panel" id="panel-dashboard">
     <div class="hero">
-      <p class="eyebrow">Live on IBM LinuxONE</p>
+      <p class="eyebrow">AI Secured · Live on IBM LinuxONE</p>
       <h1>Scam sites wear camouflage.<br>We catch them the moment they're born.</h1>
       <p class="lede">Every website needs a security certificate, and every certificate is public. Scamouflage reads each one as it's issued, scores it with AI, and flags fake toll, delivery and government sites before the first scam text is sent.</p>
     </div>
@@ -123,6 +123,31 @@
       </article>
     </div>
 
+    <!-- AI Secured: privacy and trust -->
+    <section class="secure">
+      <div class="secure-head">
+        <p class="eyebrow">AI Secured</p>
+        <h3>Powerful AI. Protected people.</h3>
+      </div>
+      <div class="secure-grid">
+        <article class="secure-item">
+          <span class="secure-icon">🔏</span>
+          <h4>Every alert is signed</h4>
+          <p>Each scam alert is signed with Ed25519 on IBM's CPACF crypto chip. Anyone can check it with our public key, so a forged or edited alert is caught instantly.</p>
+        </article>
+        <article class="secure-item">
+          <span class="secure-icon">🕶️</span>
+          <h4>We never see your browsing</h4>
+          <p>The extension downloads a signed list of hashed scam domains and checks each site on your own device. No website you visit is ever sent to us.</p>
+        </article>
+        <article class="secure-item">
+          <span class="secure-icon">🧪</span>
+          <h4>We never open scam sites</h4>
+          <p>The AI works only from public certificate data. Suspected scam domains are shown as plain text, never as clickable links.</p>
+        </article>
+      </div>
+    </section>
+
     <!-- IBM panel -->
     <article class="card ibm">
       <header class="card-head">
@@ -209,12 +234,15 @@
   <section class="tab-panel" id="panel-extension" hidden>
     <div class="ext-hero">
       <div class="ext-copy">
-        <p class="eyebrow">Free browser extension</p>
+        <p class="eyebrow">Free Chrome extension</p>
         <h2>Get warned before<br>you pay a fake toll.</h2>
-        <p class="lede">If you tap a link in a "you owe a toll" or "your package is held" text, Scamouflage stops the page before it loads and tells you why it looks fake.</p>
+        <p class="lede">If you tap a link in a "you owe a toll" or "your package is held" text, Scamouflage shows a full-page warning before you can pay, and tells you why the site looks fake. It checks every site privately, on your own device.</p>
         <div class="ext-actions">
-          <a id="install-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener">Add to Chrome, it's free</a>
-          <span class="fine">Works in Chrome and Edge. No account needed.</span>
+          <div class="ext-btns">
+            <button id="howto-btn" class="btn btn-primary" type="button">How to install</button>
+            <a id="install-btn" class="btn btn-ghost" href="#" target="_blank" rel="noopener" hidden>Download the extension</a>
+          </div>
+          <span class="fine">Chrome extension. Free, no account needed.</span>
         </div>
       </div>
 
@@ -235,8 +263,8 @@
               <li>Matches a known scam campaign</li>
             </ul>
             <div class="warn-actions">
-              <span class="btn btn-primary btn-sm">Take me back to safety</span>
-              <span class="warn-proceed">I understand the risk</span>
+              <span class="btn btn-primary btn-sm">Go back</span>
+              <span class="warn-proceed">Continue anyway</span>
             </div>
           </div>
         </div>
@@ -247,20 +275,31 @@
     <div class="steps">
       <article class="step">
         <span class="step-num">1</span>
-        <h4>Install in one click</h4>
-        <p>Add it to your browser. It runs quietly in the background.</p>
+        <h4>It keeps a signed list</h4>
+        <p>Every 30 minutes the extension downloads our list of flagged domains and checks its Ed25519 signature. A tampered or older list is rejected.</p>
       </article>
       <article class="step">
         <span class="step-num">2</span>
-        <h4>We check every link</h4>
-        <p>Each site you open is compared against our live list of brand-new scam websites.</p>
+        <h4>It checks privately</h4>
+        <p>For each site you open, it hashes the domain and looks it up in the list stored in your browser. Nothing you browse leaves your device.</p>
       </article>
       <article class="step">
         <span class="step-num">3</span>
         <h4>You get a clear warning</h4>
-        <p>If it's a likely scam, you see why in plain English, and you choose what to do.</p>
+        <p>On a match you see a full-page warning with the score and the reasons, then choose Go back or Continue anyway.</p>
       </article>
     </div>
+
+    <article class="card install" id="install-steps">
+      <h3>Install it in Chrome</h3>
+      <ol class="install-list">
+        <li>Download the <code>extension</code> folder from our project.</li>
+        <li>Open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).</li>
+        <li>Click <strong>Load unpacked</strong> and choose the <code>extension</code> folder.</li>
+        <li>Pin Scamouflage to your toolbar. You're protected.</li>
+      </ol>
+      <p class="fine">Before a Chrome Web Store listing, Chrome installs extensions this way. Demo mode flags a harmless local test page, so the demo never opens a real scam site.</p>
+    </article>
   </section>
 
 </main>

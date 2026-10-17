@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Scamouflage",
   "version": "1.0.0",
-  "description": "Warns you before you use a site TollTrap flagged as a likely toll, delivery, DMV, or IRS scam. All checks happen in your browser.",
+  "description": "Warns you before you use a site Scamouflage flagged as a likely toll, delivery, DMV, or IRS scam. All checks happen in your browser.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",

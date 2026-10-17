@@ -239,15 +239,19 @@ class Engine:
         risky = bool(d.get("risky_registrar"))
 
         if d["verdict"] == "high":
-            # An old domain only clears a name when the brand word is in the part the owner registered
-            # (austin-toll-repair.com). For ezpass-pay.weebly.com the old age belongs to the hosting
-            # platform, not the scammer, so it proves nothing -> trust the score.
-            owner_part = F.brand_hits(F.registered_domain(d["host"])) or F.fake_pattern(F.registered_domain(d["host"]))
-            old = (age is not None and age > OLD_DOMAIN_DAYS and d["score"] < VERY_HIGH_SCORE
-                   and bool(owner_part))
+            # An old domain clears a name (dhlsummit.on.expo-x.com, austin-toll-repair.com) UNLESS the host
+            # sits on a known scam-hosting platform (ezpass-pay.weebly.com): there the old age belongs to the
+            # platform, not to whoever made the page, so it proves nothing -> trust the score.
+            host, reg = d["host"], F.registered_domain(d["host"])
+            owner_part = bool(F.brand_hits(reg) or F.fake_pattern(reg))
+            platform = F.on_hosting_platform(host) and not owner_part
+            old = age is not None and age > OLD_DOMAIN_DAYS and d["score"] < VERY_HIGH_SCORE and not platform
             d["verdict"] = "safe" if old else "scam"        # no answer -> trust the score
         else:  # maybe
             young = age is not None and (age <= NEW_DOMAIN_DAYS or (age <= NEW_RISKY_DAYS and risky))
-            d["verdict"] = "scam" if young else "safe"      # no answer -> precision first
+            # a rescue needs the brand as a WHOLE word (usps-pay, ezpasspay) or the fake .com-/gov- trick;
+            # brands hidden inside other words (irshadwoodworks, coffeepass) are never rescued
+            clear_brand = F.brand_whole_word(d["host"]) or F.fake_pattern(d["host"])
+            d["verdict"] = "scam" if young and clear_brand else "safe"   # no answer -> precision first
         d["decided_at"] = _now()
         return d

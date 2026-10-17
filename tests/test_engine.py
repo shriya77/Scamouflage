@@ -122,10 +122,30 @@ def test_no_stage3_answer():
 
 def test_old_hosting_platform_does_not_clear_scam():
     # weebly.com is decades old, but that's the platform's age, not the scammer's page
+    from model import features as F
+    F.HOSTING_PLATFORMS.add("weebly.com")
     e = engine({"ezpass-pay.weebly.com": 0.8})
     d = e.decide_host("ezpass-pay.weebly.com")
     assert d["verdict"] == "high"
     assert e.finalize(d, ok(9000, "Network Solutions"))["verdict"] == "scam"
+
+
+def test_old_non_platform_domain_clears():
+    # dhlsummit.on.expo-x.com: 12-year-old domain, not a scam-hosting platform -> real business
+    e = engine({"dhlsummit.on.expo-x.com": 0.955})
+    d = e.decide_host("dhlsummit.on.expo-x.com")
+    assert d["verdict"] == "high"
+    assert e.finalize(d, ok(12 * 365, "MarkMonitor Inc."))["verdict"] == "safe"
+
+
+def test_hidden_brand_never_rescued():
+    e = engine({"irshadwoodworks.com": 0.5, "coffeepass.shop": 0.5, "usps-pay-now.top": 0.5})
+    for h in ("irshadwoodworks.com", "coffeepass.shop"):
+        d = e.decide_host(h)
+        assert d["verdict"] == "maybe"
+        assert e.finalize(d, ok(1, "Gname.com", risky=True))["verdict"] == "safe"
+    d = e.decide_host("usps-pay-now.top")
+    assert e.finalize(d, ok(1, "Gname.com", risky=True))["verdict"] == "scam"
 
 
 def test_very_high_score_survives_old_domain():

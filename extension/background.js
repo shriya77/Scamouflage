@@ -31,6 +31,7 @@ const K_SYNC_STATUS = 'sync_status'; // { lastAttemptAt, lastSuccessAt, lastErro
 // chrome.storage.session keys (cleared when the browser closes)
 const K_ALLOWED = 'allowed_hosts';  // [hostname, ...] the user chose "Continue anyway"
 const K_SAFE_PREFIX = 'safe_url_';  // safe_url_<tabId>: last page in that tab that wasn't flagged
+const K_ALERT_PREFIX = 'alert_';    // alert_<tabId>: the flagged site the alert popup should show
 
 const DEFAULT_SETTINGS = {
   backendUrl: CONFIG.DEFAULT_BACKEND_URL,
@@ -47,6 +48,8 @@ const state = {
   generatedAt: null,
   entries: new Map(),     // hash -> entry, for fast lookups
   allowlist: new Set(),   // hashes of official domains
+  flaggedHostnames: null, // how many flagged sites the list covers (null = not reported)
+  model: null,            // { version, trained_at, n_train, n_val } or null
   loadError: null,
 };
 let loadPromise = null;     // the in-progress (or finished) load of the active list
@@ -74,6 +77,8 @@ function activate(payload, source) {
   state.entries = new Map(payload.entries.map((e) => [e.h, e]));
   state.allowlist = new Set(payload.allowlist);
   state.generatedAt = payload.generated_at;
+  state.flaggedHostnames = payload.flagged_hostnames;
+  state.model = payload.model;
   state.source = source;
   state.loaded = true;
   state.loadError = null;
@@ -84,6 +89,8 @@ function deactivate(error) {
   state.entries = new Map();
   state.allowlist = new Set();
   state.generatedAt = null;
+  state.flaggedHostnames = null;
+  state.model = null;
   state.source = null;
   state.loaded = false;
   state.loadError = error || null;
@@ -316,6 +323,38 @@ async function showWarning(tabId, url, result) {
   chrome.tabs.update(tabId, { url: WARNING_PAGE + '?' + params.toString() }).catch((err) => {
     console.warn('[Scamouflage] could not show warning:', err);
   });
+
+  // Also pop up the alert. The popup reads this record to know what to show.
+  await chrome.storage.session.set({
+    [K_ALERT_PREFIX + tabId]: {
+      hostname: result.hostname,
+      matched: result.matched || null,
+      score: entry.score == null ? null : entry.score,
+      reasons: entry.reasons || [],
+      observed_at: entry.observed_at || null,
+      at: new Date().toISOString(),
+    },
+  });
+  await openAlertPopup(tabId);
+}
+
+/**
+ * Open the toolbar popup on its own, in "alert" mode. chrome.action.openPopup
+ * exists from Chrome 127, and only works while the window is focused. If it
+ * can't open, the full-page warning is still there, so failures are ignored.
+ */
+async function openAlertPopup(tabId) {
+  if (!chrome.action.openPopup) return;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.action.openPopup({ windowId: tab.windowId });
+  } catch (_) {
+    // Window not focused, or a popup is already open.
+  }
+}
+
+function clearAlert(tabId) {
+  return chrome.storage.session.remove(K_ALERT_PREFIX + tabId);
 }
 
 async function onMainFrameNavigation(tabId, url, committed) {
@@ -328,8 +367,10 @@ async function onMainFrameNavigation(tabId, url, committed) {
   setBadge(tabId, badgeFor(result));
   if (result.status === 'flagged') {
     if (!result.userAllowed) await showWarning(tabId, url, result);
+    else await clearAlert(tabId); // they chose "Continue anyway"
     return;
   }
+  if (committed) await clearAlert(tabId);
   // Remember the last web page that loaded in this tab and wasn't flagged.
   if (committed && /^https?:/i.test(url)) {
     await chrome.storage.session.set({ [K_SAFE_PREFIX + tabId]: url });
@@ -357,7 +398,7 @@ chrome.webNavigation.onCommitted.addListener((details) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.session.remove(K_SAFE_PREFIX + tabId);
+  chrome.storage.session.remove([K_SAFE_PREFIX + tabId, K_ALERT_PREFIX + tabId]);
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -404,6 +445,8 @@ async function getListInfo() {
     loaded: state.loaded,
     source: state.source,
     entryCount: state.entries.size,
+    flaggedHostnames: state.flaggedHostnames,
+    model: state.model,
     generatedAt: state.generatedAt,
     loadError: state.loadError,
     demoMode: settings.demoMode,
@@ -421,6 +464,16 @@ async function handleMessage(msg) {
 
     case 'getListInfo':
       return { list: await getListInfo() };
+
+    case 'getTabAlert': {
+      // From the popup: is there a scam alert for this tab?
+      const key = K_ALERT_PREFIX + Number(msg.tabId);
+      return { alert: (await chrome.storage.session.get(key))[key] || null, list: await getListInfo() };
+    }
+
+    case 'dismissAlert':
+      await clearAlert(Number(msg.tabId));
+      return { ok: true };
 
     case 'syncNow':
       // Re-read settings first: the options page may have just saved them.
