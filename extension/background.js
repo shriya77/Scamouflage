@@ -30,6 +30,7 @@ const K_LIVE_LIST = 'list_live';    // { envelope, generatedAt, savedAt }
 const K_SYNC_STATUS = 'sync_status'; // { lastAttemptAt, lastSuccessAt, lastError }
 // chrome.storage.session keys (cleared when the browser closes)
 const K_ALLOWED = 'allowed_hosts';  // [hostname, ...] the user chose "Continue anyway"
+const K_SAFE_PREFIX = 'safe_url_';  // safe_url_<tabId>: last page in that tab that wasn't flagged
 
 const DEFAULT_SETTINGS = {
   backendUrl: CONFIG.DEFAULT_BACKEND_URL,
@@ -113,8 +114,11 @@ async function loadActiveList() {
     return;
   }
   // Re-verify what we saved. It's cheap and guards against a corrupted store.
+  // It also catches lists signed by a key we've since retired from config.js:
+  // those are deleted so the next sync starts fresh.
   const result = M.verifyEnvelope(saved.envelope, CONFIG.LIVE_KEYS, self.nacl);
   if (!result.ok) {
+    await chrome.storage.local.remove(K_LIVE_LIST);
     deactivate('Saved list rejected: ' + result.error);
     return;
   }
@@ -184,8 +188,11 @@ async function doSync(trigger) {
     if (!result.ok) throw new Error('list rejected: ' + result.error);
 
     // Step 4: refuse to go backwards in time (stops replay of an old list).
+    // Only a saved list that still verifies counts; one signed by a retired
+    // key must not block the new key's lists.
     const saved = (await chrome.storage.local.get(K_LIVE_LIST))[K_LIVE_LIST];
-    if (saved && M.isOlder(result.payload.generated_at, saved.generatedAt)) {
+    const savedStillValid = saved && M.verifyEnvelope(saved.envelope, CONFIG.LIVE_KEYS, self.nacl).ok;
+    if (savedStillValid && M.isOlder(result.payload.generated_at, saved.generatedAt)) {
       throw new Error('list rejected: older than the saved list (' +
         result.payload.generated_at + ' < ' + saved.generatedAt + ')');
     }
@@ -290,8 +297,10 @@ function badgeFor(result) {
 }
 
 /** Send the tab to warning.html, carrying the match details in the URL. */
-function showWarning(tabId, url, result, committed) {
+async function showWarning(tabId, url, result) {
   const entry = result.entry || {};
+  const safeKey = K_SAFE_PREFIX + tabId;
+  const back = (await chrome.storage.session.get(safeKey))[safeKey] || '';
   const params = new URLSearchParams({
     url,                                   // the original page, for "Continue anyway"
     host: result.hostname,
@@ -300,9 +309,10 @@ function showWarning(tabId, url, result, committed) {
     reasons: JSON.stringify(entry.reasons || []),
     observed: entry.observed_at || '',
     source: entry.source || result.source || '',
-    // "1" if the flagged page already made it into the tab's history, so
-    // "Go back" must skip it.
-    committed: committed ? '1' : '0',
+    // Where "Go back" goes: the last page in this tab that wasn't flagged.
+    // We use this instead of history.back(), because if the flagged page
+    // loaded before the warning did, one step back would land on it again.
+    back,
   });
   chrome.tabs.update(tabId, { url: WARNING_PAGE + '?' + params.toString() }).catch((err) => {
     console.warn('[Scamouflage] could not show warning:', err);
@@ -317,8 +327,13 @@ async function onMainFrameNavigation(tabId, url, committed) {
   }
   const result = await checkUrl(url);
   setBadge(tabId, badgeFor(result));
-  if (result.status === 'flagged' && !result.userAllowed) {
-    showWarning(tabId, url, result, committed);
+  if (result.status === 'flagged') {
+    if (!result.userAllowed) await showWarning(tabId, url, result);
+    return;
+  }
+  // Remember the last web page that loaded in this tab and wasn't flagged.
+  if (committed && /^https?:/i.test(url)) {
+    await chrome.storage.session.set({ [K_SAFE_PREFIX + tabId]: url });
   }
 }
 
@@ -340,6 +355,10 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 chrome.webNavigation.onCommitted.addListener((details) => {
   if (details.frameId !== 0) return;
   onMainFrameNavigation(details.tabId, details.url, true).catch(console.error);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.storage.session.remove(K_SAFE_PREFIX + tabId);
 });
 
 chrome.runtime.onInstalled.addListener(() => {

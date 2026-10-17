@@ -2,7 +2,7 @@
  * warning.js: fills in the red warning page and handles its two buttons.
  *
  * background.js opens this page as:
- *   warning.html?url=...&host=...&matched=...&score=...&reasons=[...]&observed=...&committed=0|1
+ *   warning.html?url=...&host=...&matched=...&score=...&reasons=[...]&observed=...&source=...&back=...
  *
  * Everything is inserted with textContent (never innerHTML), so nothing in the
  * list can inject HTML into this page.
@@ -20,7 +20,7 @@
   const score = scoreText === null || scoreText === '' ? null : Number(scoreText);
   const observed = params.get('observed') || '';
   const source = params.get('source') || '';
-  const committed = params.get('committed') === '1';
+  const backUrl = params.get('back') || '';
 
   let reasons = [];
   try {
@@ -73,19 +73,28 @@
   }
 
   // ---- Step 2: "Go back" ----------------------------------------------------
-  // If the flagged page itself made it into history (committed), going back
-  // one step would land on it again, so we go back two steps.
+  // background.js tells us the last page in this tab that wasn't flagged.
+  // Going there is more reliable than history.back(): if the flagged page
+  // loaded before the warning did, one step back would land on it again.
   document.getElementById('go-back').addEventListener('click', async () => {
-    const steps = committed ? 2 : 1;
-    if (history.length > steps) {
-      history.go(-steps);
+    let back = null;
+    try {
+      back = backUrl ? new URL(backUrl) : null;
+    } catch (_) {
+      back = null;
+    }
+    if (back && (back.protocol === 'http:' || back.protocol === 'https:')) {
+      location.replace(back.href); // replace: the warning page leaves history
       return;
     }
-    // No safe page to go back to: open a fresh new tab and close this one.
+    // Nothing safe to go back to (e.g. the link opened in a new tab): close
+    // this tab. If it's the last tab in the window, open a new tab first so
+    // the window doesn't close.
     try {
       const tab = await chrome.tabs.getCurrent();
-      await chrome.tabs.create({});
-      if (tab && tab.id !== undefined) await chrome.tabs.remove(tab.id);
+      const tabsInWindow = await chrome.tabs.query({ windowId: tab.windowId });
+      if (tabsInWindow.length <= 1) await chrome.tabs.create({ windowId: tab.windowId });
+      await chrome.tabs.remove(tab.id);
     } catch (_) {
       window.close();
     }
