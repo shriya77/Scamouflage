@@ -63,9 +63,20 @@ NEGATIVES = [
 ]
 OFFICIAL = "# test allowlist\nezdrive.test\n"
 
+# Optional table (proposed for labels/feeds.py `tranco`): Tranco's top N by rank, NOT minus the
+# scam lists. The base fixture has no such table, so every other test sees the old behaviour.
+TRANCO_SCHEMA = "CREATE TABLE tranco_top (host TEXT PRIMARY KEY, rank INTEGER, added TEXT);"
+TRANCO_TOP = [("bigsite.test", 1), ("github.io", 2), ("WWW.Video-CDN.TEST", 3), ("quiet.test", 4)]
+# Poisoned rows a noisy feed adds on top of LABELS, for the tranco_top tests.
+POISONED = [
+    ("bigsite.test", None, "other", "phishing_database"),       # a big site itself (nflxvideo.net)
+    ("login.bigsite.test", None, "other", "openphish"),         # a tenant under a big site: kept
+    ("video-cdn.test", None, "other", "phishing_army"),         # a big site; table row needs cleaning
+]
+
 
 class Fixture:
-    def __init__(self):
+    def __init__(self, tranco_top=None, extra_labels=()):
         self.dir = tempfile.mkdtemp(prefix="stage0-test-")
         self.db = os.path.join(self.dir, "labels.db")
         self.official = os.path.join(self.dir, "official.txt")
@@ -73,10 +84,14 @@ class Fixture:
             f.write(OFFICIAL)
         con = self.connect()
         con.executescript(SCHEMA)
-        for h, b, c, feed in LABELS:
+        for h, b, c, feed in LABELS + list(extra_labels):
             self.add(h, b, c, feed, con)
         for h, d, src in NEGATIVES:
             con.execute("INSERT INTO negatives VALUES (?,?,?,?)", (h, d, src, TS))
+        if tranco_top is not None:
+            con.execute(TRANCO_SCHEMA)
+            con.executemany("INSERT INTO tranco_top VALUES (?,?,?)",
+                            [(h, r, TS) for h, r in tranco_top])
         con.commit()
         con.close()
 
@@ -94,6 +109,13 @@ class Fixture:
             con.commit()
             con.close()
 
+    def sql(self, *statements):
+        con = self.connect()
+        for s in statements:
+            con.execute(s)
+        con.commit()
+        con.close()
+
     def known(self):
         return KnownList(self.db, official_file=self.official)
 
@@ -101,15 +123,17 @@ class Fixture:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
-def with_fixture(fn):
-    def run():
-        fx = Fixture()
-        try:
-            fn(fx)
-        finally:
-            fx.close()
-    run.__name__ = fn.__name__
-    return run
+def with_fixture(fn=None, **kw):
+    def wrap(fn):
+        def run():
+            fx = Fixture(**kw)
+            try:
+                fn(fx)
+            finally:
+                fx.close()
+        run.__name__ = fn.__name__
+        return run
+    return wrap(fn) if fn else wrap
 
 
 @with_fixture
@@ -264,6 +288,79 @@ def test_new_negative_removes_listed_host(fx):
     con.close()
     assert kl.refresh() == 0
     assert kl.check("bad.test") is None and kl.check("sub.bad.test") is None
+
+
+@with_fixture(extra_labels=POISONED)
+def test_no_tranco_top_table_is_old_behaviour(fx):
+    kl = fx.known()
+    s = kl.summary()
+    assert s["tranco_top_hosts"] is None and s["removed_rows"]["tranco_top"] == 0
+    # the gap the guard closes: a listed big site flags every name under it
+    assert kl.explain("x.1.oca.bigsite.test")[1] == "registered-domain"
+
+
+@with_fixture(tranco_top=TRANCO_TOP, extra_labels=POISONED)
+def test_tranco_top_guard(fx):
+    stage0.registered_domain.cache_clear()
+    kl = fx.known()
+    assert stage0.registered_domain.cache_info().currsize == 0   # load did not fill check()'s cache
+    s = kl.summary()
+    # a big site a noisy feed listed is dropped, so nothing under it matches (nflxvideo.net case)
+    assert kl.check("bigsite.test") is None
+    assert kl.check("x.1.oca.bigsite.test") is None
+    assert kl.check("video-cdn.test") is None              # the table row was cleaned on load
+    assert kl.check("a.1.oca.video-cdn.test") is None
+    assert s["removed_rows"]["tranco_top"] == 2 and s["removed_hosts"]["tranco_top"] == 2
+    assert s["tranco_top_hosts"] == 4
+    # a listed tenant under a top site keeps its exact match, and only that
+    assert kl.explain("login.bigsite.test") == ({"brand": None, "category": "other",
+                                                 "feed": "openphish"}, "exact", "login.bigsite.test")
+    assert kl.check("www.login.bigsite.test") is not None   # www. is cleaned off
+    assert kl.check("x.login.bigsite.test") is None
+    # github.io is a top site, and evil.github.io (a tenant) still matches
+    assert kl.explain("evil.github.io")[1] == "exact"
+    assert kl.check("other.github.io") is None
+    # nothing else changes
+    assert kl.check("ezpass.com-abc.test") is not None
+    assert kl.explain("sub.bad.test")[1] == "registered-domain"
+    assert s["unique_hosts"] == 8 and s["removed_rows"]["public_suffix"] == 1
+    # the guard set is not kept after loading
+    for name, v in vars(kl).items():
+        if isinstance(v, (set, frozenset, dict)):
+            assert "quiet.test" not in v, name
+
+
+@with_fixture(extra_labels=POISONED)
+def test_refresh_when_tranco_top_appears_and_changes(fx):
+    kl = fx.known()
+    assert kl.check("x.bigsite.test") is not None
+    fx.sql(TRANCO_SCHEMA)                       # an empty table appears: reload, nothing dropped
+    assert kl.refresh() == 0 and kl.summary()["tranco_top_hosts"] == 0
+    assert kl.check("x.bigsite.test") is not None
+    fx.sql(f"INSERT INTO tranco_top VALUES ('bigsite.test', 1, '{TS}')",
+           f"INSERT INTO tranco_top VALUES ('quiet.test', 2, '{TS}')")
+    kl.refresh()
+    assert kl.check("bigsite.test") is None and kl.check("x.bigsite.test") is None
+    assert kl.explain("login.bigsite.test")[1] == "exact"
+    assert kl.summary()["removed_rows"]["tranco_top"] == 1
+    # new label rows go through the guard: a top site is dropped, a tenant under one is added
+    fx.add("quiet.test")
+    assert kl.refresh() == 0 and kl.check("quiet.test") is None
+    fx.add("pay.bigsite.test")
+    assert kl.refresh() == 1 and kl.explain("pay.bigsite.test")[1] == "exact"
+    assert kl.check("x.pay.bigsite.test") is None
+    # a rebuild as feeds.py does it (DELETE + INSERT, same size, rowids from 1 again, new `added`)
+    later = "2026-10-18T15:00:00+00:00"
+    fx.sql("DELETE FROM tranco_top",
+           f"INSERT INTO tranco_top VALUES ('quiet.test', 1, '{later}')",
+           f"INSERT INTO tranco_top VALUES ('other.test', 2, '{later}')")
+    kl.refresh()
+    assert kl.explain("x.bigsite.test")[1] == "registered-domain"
+    assert kl.check("quiet.test") is None
+    fx.sql("DROP TABLE tranco_top")
+    kl.refresh()
+    assert kl.summary()["tranco_top_hosts"] is None
+    assert kl.check("bigsite.test") is not None and kl.check("quiet.test") is not None
 
 
 @with_fixture

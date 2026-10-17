@@ -20,14 +20,21 @@ Guards against poisoned feeds (phishing feeds sometimes list big legitimate name
   - official:      a listed name that is, or is under, a site in labels/official.txt is skipped.
   - both_lists:    a listed name that is also in the `negatives` table (Tranco + official) is
                    skipped, the same rule as labels/build_dataset.py.
+  - tranco_top:    a listed name that is itself in the optional `tranco_top` table (Tranco's top N
+                   by rank, NOT minus the scam lists) is skipped. So a noisy feed listing a big site
+                   (nflxvideo.net) cannot flag every name under it. A listed name UNDER a top site
+                   (evil.weebly.com) is kept and still matches exactly. No table: no guard.
   - rule (b) never fires through a registered domain that is in `negatives` (as a host or as a
-    negative's domain) or in official.txt. The name itself still matches exactly.
+    negative's domain) or in official.txt. The name itself still matches exactly. Rule (b) only
+    fires through a registered domain that is itself listed, and a tranco_top name is never in
+    the list, so rule (b) never fires through one either.
 
 Refresh column: `rowid`. feeds.py inserts new rows with INSERT OR IGNORE (rowid only grows) and
 rewrites `last_seen` on EVERY existing row each pull, so "last_seen > last refresh" would re-read
 almost the whole table every hour. `first_seen` is stamped when a pull starts but committed when
 it ends, so a refresh in between could miss rows. If the table shrinks or is replaced (rowid going
-backwards, row count not adding up, a different file), refresh() falls back to a full reload.
+backwards, row count not adding up, a different file, tranco_top changed), refresh() falls back
+to a full reload.
 
 SQLite is opened read-only (mode=ro, timeout=30) for each load and closed straight after, so the
 feeds loop can keep writing (the DB is in WAL mode; readers never block it). Never queried per
@@ -61,7 +68,7 @@ log = logging.getLogger("scamouflage.stage0")
 
 REFRESH_COLUMN = "rowid"
 OFFICIAL_FILE = os.path.join(ROOT, "labels", "official.txt")
-GUARDS = ("public_suffix", "official", "both_lists")
+GUARDS = ("public_suffix", "official", "both_lists", "tranco_top")
 
 # Bundled PSL snapshot only (suffix_list_urls=()), no disk cache, private domains on.
 _EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None,
@@ -157,10 +164,15 @@ class KnownList:
         con = self._connect()
         try:
             con.execute("BEGIN")  # one consistent snapshot while the feeds loop writes
-            neg_hosts, self._neg_fp = self._negative_hosts(con)
-            self.n_negatives = len(neg_hosts)
-            self._read_rows(con, 0, neg_hosts)
-            del neg_hosts
+            neg_hosts, self._neg_fp = self._table_hosts(con, "negatives")
+            if self._neg_fp is None:
+                log.warning("Stage 0: no negatives table; both_lists guard is off")
+            top, self._top_fp = self._table_hosts(con, "tranco_top")
+            if self._top_fp is None:
+                log.info("Stage 0: no tranco_top table; tranco_top guard is off")
+            self.n_negatives, self.n_tranco_top = len(neg_hosts), len(top)
+            self._read_rows(con, 0, neg_hosts, top)
+            del neg_hosts, top
             self._rd_blocked = self._blocked_among(con, self.hosts)
         finally:
             con.close()
@@ -182,8 +194,10 @@ class KnownList:
         self.junk_rows = 0                   # host empty / an IP / not a name after cleaning
         self.duplicate_rows = 0              # same host from another feed
         self.watermark = 0                   # highest rowid read
-        self._neg_fp = None                  # (count, max rowid) of negatives at the last read
+        self._neg_fp = None                  # (count, max rowid, max added) of negatives
+        self._top_fp = None                  # same for tranco_top (None: no such table)
         self.n_negatives = 0
+        self.n_tranco_top = 0
         self._official = self._read_official()
         self._inode = os.stat(self.db_path).st_ino
 
@@ -209,24 +223,27 @@ class KnownList:
         return frozenset(out)
 
     @staticmethod
-    def _negatives_fp(con):
+    def _table_fp(con, table: str):
+        """(row count, max rowid, max added) of a guard table, or None if there is no such table.
+        `added` matters: a rebuild (DELETE + INSERT) of the same size reuses rowids from 1."""
         try:
-            return tuple(con.execute("SELECT COUNT(*), MAX(rowid) FROM negatives").fetchone())
+            return tuple(con.execute(f"SELECT COUNT(*), MAX(rowid), MAX(added) FROM {table}")
+                         .fetchone())
         except sqlite3.OperationalError:
             return None
 
-    def _negative_hosts(self, con) -> tuple[set, tuple | None]:
-        """Cleaned hosts of the negatives table. Only held while loading (~300k names)."""
+    def _table_hosts(self, con, table: str) -> tuple[set, tuple | None]:
+        """Cleaned hosts of a guard table (negatives ~300k, tranco_top ~100k names), and its
+        fingerprint. Only held while loading. (empty set, None) if there is no such table."""
         out = set()
         try:
-            for (h,) in con.execute("SELECT host FROM negatives"):
+            for (h,) in con.execute(f"SELECT host FROM {table}"):
                 h = clean(h)
                 if h:
                     out.add(h)
-        except sqlite3.OperationalError as e:
-            log.warning("Stage 0: no negatives table (%s); both_lists guard is off", e)
+        except sqlite3.OperationalError:
             return out, None
-        return out, self._negatives_fp(con)
+        return out, self._table_fp(con, table)
 
     def _blocked_among(self, con, pool) -> set:
         """Listed hosts (in pool) that are some negative's registered domain: rule (b) must not
@@ -241,7 +258,7 @@ class KnownList:
             pass
         return out
 
-    def _drop_reason(self, h: str, neg_hosts: set) -> str | None:
+    def _drop_reason(self, h: str, neg_hosts: set, top: set) -> str | None:
         if is_public_suffix(h):
             return "public_suffix"
         official = self._official
@@ -249,9 +266,13 @@ class KnownList:
             return "official"
         if h in neg_hosts:
             return "both_lists"
+        # Only the name itself: tenants under a top site (evil.weebly.com) keep their exact match.
+        # Dropping the top site is also what keeps rule (b) from firing through it.
+        if h in top:
+            return "tranco_top"
         return None
 
-    def _read_rows(self, con, after_rowid: int, neg_hosts: set, added_hosts=None) -> int:
+    def _read_rows(self, con, after_rowid: int, neg_hosts: set, top: set, added_hosts=None) -> int:
         """Load rows with rowid > after_rowid. Returns how many new hosts were added."""
         hosts, added = self.hosts, 0
         rows = con.execute("SELECT rowid, host, brand, category, feed FROM labels "
@@ -269,7 +290,7 @@ class KnownList:
                 if old[0] is None and brand:  # keep the branded row's metadata
                     hosts[h] = self._meta_for(brand, category, old[2])
                 continue
-            reason = self._removed.get(h) or self._drop_reason(h, neg_hosts)
+            reason = self._removed.get(h) or self._drop_reason(h, neg_hosts, top)
             if reason:
                 self.removed_rows[reason] += 1
                 self._removed[h] = reason
@@ -300,18 +321,21 @@ class KnownList:
                                   (self.watermark,)).fetchone()[0]
                 if total != self.rows_seen + new:
                     return self._full_reload(f"row count {total} != {self.rows_seen} read + {new} new")
-                neg_changed = self._negatives_fp(con) != self._neg_fp
+                if self._table_fp(con, "tranco_top") != self._top_fp:  # rebuilt, added or dropped
+                    return self._full_reload("the tranco_top table changed")
+                neg_changed = self._table_fp(con, "negatives") != self._neg_fp
                 if new == 0 and not neg_changed:
                     return 0
-                neg_hosts, self._neg_fp = self._negative_hosts(con)
+                neg_hosts, self._neg_fp = self._table_hosts(con, "negatives")
                 self.n_negatives = len(neg_hosts)
                 if neg_changed:  # a listed host may now be a known-good site
                     for h in neg_hosts:
                         if self.hosts.pop(h, None) is not None:
                             self._removed[h] = "both_lists"
+                top = self._table_hosts(con, "tranco_top")[0] if new else set()
                 new_hosts = []
-                added = self._read_rows(con, self.watermark, neg_hosts, new_hosts)
-                del neg_hosts
+                added = self._read_rows(con, self.watermark, neg_hosts, top, new_hosts)
+                del neg_hosts, top
                 if neg_changed:
                     self._rd_blocked = self._blocked_among(con, self.hosts)
                 elif new_hosts:
@@ -382,6 +406,7 @@ class KnownList:
             "removed_hosts": {g: removed_hosts[g] for g in GUARDS},
             "rule_b_blocked_hosts": len(self._rd_blocked),
             "negatives_hosts": self.n_negatives,
+            "tranco_top_hosts": self.n_tranco_top if self._top_fp is not None else None,
             "official_hosts": len(self._official),
             "watermark_rowid": self.watermark, "refresh_column": REFRESH_COLUMN,
             "load_seconds": round(self.load_seconds, 2),
@@ -436,8 +461,10 @@ def cmd_stats(args):
         print(f"  {g:14s}    {s['removed_rows'][g]:>8,} / {s['removed_hosts'][g]:,}")
     print(f"  rule (b) off for  {s['rule_b_blocked_hosts']:>8,} listed hosts that are a negative's "
           f"registered domain (still match exactly)")
+    top = s["tranco_top_hosts"]
     print(f"guard inputs:       {s['negatives_hosts']:,} negatives hosts, "
-          f"{s['official_hosts']} official hosts, {len(_PSL):,} PSL suffixes "
+          + (f"{top:,} tranco_top hosts, " if top is not None else "no tranco_top table (guard off), ")
+          + f"{s['official_hosts']} official hosts, {len(_PSL):,} PSL suffixes "
           f"(tldextract {tldextract.__version__}, bundled)")
     cats = Counter(m[1] for m in kl.hosts.values())
     brands = Counter(m[0] for m in kl.hosts.values() if m[0])
