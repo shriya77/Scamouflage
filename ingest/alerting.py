@@ -156,7 +156,7 @@ def alert_row(d, ctx):
         "issuer": ctx.get("issuer"),
         "log": ctx.get("log"),
         "verify": ctx.get("verify"),
-        "crtsh_url": f"https://crt.sh/?q={ctx['cert_id']}",
+        "crtsh_url": ctx["crtsh_url"],
         "verdict": d["verdict"],
         "stage": _i(d.get("stage")),
         "s1": _f(d.get("s1")),

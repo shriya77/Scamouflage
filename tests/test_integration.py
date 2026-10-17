@@ -64,7 +64,7 @@ def fake_engine():
 
 
 def ctx_for(host, cert_id="ab" * 32):
-    return {"cert_id": cert_id, "domains": [host, "x." + host], "seen_at": 1792245600.5,
+    return {"cert_id": cert_id, "crtsh_url": f"https://crt.sh/?q={cert_id}", "domains": [host, "x." + host], "seen_at": 1792245600.5,
             "issuer": "/C=US/O=Let's Encrypt/CN=R11", "log": "Test Log", "verify": "ok", "other_gated": 1}
 
 
@@ -326,10 +326,10 @@ def test_worker_returns_only_non_safe_decisions_and_counters():
     C._ENGINE = {"engine": fake_engine(), "verify": lambda rec: {"status": "unknown_issuer"},
                  "info": {"pid": os.getpid(), "stage0_refreshes": 0}, "refreshed": time.time()}
     try:
-        recs = [{"id": "01" * 32, "seen_at": 1792245600.5, "issuer": "i", "log": "l",
+        recs = [{"id": "01" * 32, "crtsh_url": "u1", "seen_at": 1792245600.5, "issuer": "i", "log": "l",
                  "not_before": 0, "not_after": 1,
                  "domains": ["ezpass.com-xk2.win", "sunpass.com-xk2.win", "dallas-pizza.com"]},
-                {"id": "02" * 32, "seen_at": 1792245601.0, "issuer": "i", "log": "l",
+                {"id": "02" * 32, "crtsh_url": "u2", "seen_at": 1792245601.0, "issuer": "i", "log": "l",
                  "not_before": 0, "not_after": 1, "domains": ["usps-redeliver-known.top", "ntta.org"]}]
         out = C.process_batch_engine(recs, {"refresh_s": 900})
     finally:
@@ -342,6 +342,32 @@ def test_worker_returns_only_non_safe_decisions_and_counters():
     assert ctx["ezpass.com-xk2.win"]["other_gated"] == 1 and ctx["ezpass.com-xk2.win"]["verify"] == "unknown_issuer"
     assert ctx["usps-redeliver-known.top"]["s0"]["feed"] == "openphish"
     assert len(out["results"]) == 2 and len(out["names"]) == 5
+
+
+def ct_msg(sha256, serial, log, update_type="PrecertLogEntry", issuer="/C=US/O=Let's Encrypt/CN=R11"):
+    return {"message_type": "certificate_update",
+            "data": {"update_type": update_type, "seen": 1792245600.5, "source": {"name": log},
+                     "leaf_cert": {"sha256": sha256, "serial_number": serial, "issuer": {"aggregated": issuer},
+                                   "all_domains": ["ezpass.com-xk2.win"], "not_before": 1, "not_after": 2}}}
+
+
+def test_empty_der_precerts_are_keyed_on_issuer_and_serial():
+    from ingest.record import EMPTY_SHA256, to_record
+    empty = ":".join(EMPTY_SHA256[i:i + 2] for i in range(0, 64, 2)).upper()
+    a = to_record(ct_msg(empty, "9AFCED795F778BFB", "Sycamore2027h1"))
+    b = to_record(ct_msg(empty, "9AFCED795F778BFB", "Willow2027h1"))
+    other_serial = to_record(ct_msg(empty, "9AFCED795F778BFC", "Sycamore2027h1"))
+    other_issuer = to_record(ct_msg(empty, "9AFCED795F778BFB", "Sycamore2027h1", issuer="/C=US/O=Google Trust Services/CN=WR1"))
+    assert a["id"] == b["id"] and a["id"].startswith("sn:") and EMPTY_SHA256 not in a["id"]
+    assert len({a["id"], other_serial["id"], other_issuer["id"]}) == 3
+    assert a["crtsh_url"] == "https://crt.sh/?serial=9afced795f778bfb"
+    dd = C.Dedupe()
+    assert [dd.seen(r["id"]) for r in (a, b, other_serial)] == [False, True, False]
+
+    real = to_record(ct_msg("AB:" * 31 + "CD", "9AFCED795F778BFB", "Sycamore2027h1", update_type="X509LogEntry"))
+    assert real["id"] == "ab" * 31 + "cd" and real["crtsh_url"] == "https://crt.sh/?q=" + "ab" * 31 + "cd"
+    no_serial = to_record(ct_msg(empty, "", "Sycamore2027h1"))
+    assert no_serial["id"].startswith("sn:") and no_serial["crtsh_url"] == "https://crt.sh/?q=ezpass.com-xk2.win"
 
 
 def test_unique_names_estimate():

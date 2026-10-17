@@ -16,7 +16,7 @@ CT logs -> certstream-server-go (:8080) -> ingest/consumer.py
 
 ```python
 {
-  "id":          "5feceb66...",   # sha256 of the leaf cert, lowercase hex, no colons
+  "id":          "5feceb66...",   # sha256 of the leaf cert, lowercase hex, no colons ("sn:..." for empty-DER precerts, see note)
   "seen_at":     1792248185.59,   # unix seconds the log entry was seen
   "domains":     ["ezpass.com-xyz.win", ...],  # lowercased, "*." stripped, de-duped
   "issuer":      "/C=US/O=Let's Encrypt/CN=R11",
@@ -27,11 +27,13 @@ CT logs -> certstream-server-go (:8080) -> ingest/consumer.py
   # --- added by Platform ---
   "update_type": "precert" | "cert",
   "chain_b64":   ["MIIF...", ...], # issuer chain DER, base64. CAN BE [] (see note)
-  "cert_index":  123456789
+  "cert_index":  123456789,
+  "crtsh_url":   "https://crt.sh/?q=5feceb66..."  # ?serial=<serial> for empty-DER precerts
 }
 ```
 
 **Notes**
+- **Empty-DER precerts.** certstream-server-go sends many precerts (29% of messages, mostly from the static logs) without their DER, so their `sha256` is the hash of empty bytes (`e3b0c442…`). For those, `id` is `"sn:" + sha256(issuer + "\n" + serial)`, which is the same in every log the precert is in, and `crtsh_url` searches crt.sh by serial. Every other record keeps the real sha256, so old rows in `seen` and `alerts` still match.
 - The **same certificate shows up twice**: once as a precert and once as the final cert. They have **different sha256**. The consumer de-dupes exact hashes only, so expect about 2× per domain. Use `seen` (first time per domain) for lead-time.
 - **Static CT logs (Let's Encrypt Sycamore/Willow) send no chain.** `chain_b64` is `[]` for them. `verify` must handle that: look the issuer up in a cache keyed by issuer name, or return `unknown_issuer`.
 - Real rate on our VM: **~885 unique certs/sec** (~2,250 websocket msgs/sec). Your function gets **about 1 ms per cert** on one core. With `--workers 3`, it gets about 3 ms.

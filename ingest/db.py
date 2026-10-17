@@ -8,7 +8,7 @@ DEFAULT_DB = os.environ.get("SCAM_DB", "data/scamouflage.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alerts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    cert_id    TEXT NOT NULL,          -- sha256 of the leaf cert (lowercase hex)
+    cert_id    TEXT NOT NULL,          -- sha256 of the leaf cert (lowercase hex), "sn:..." for empty-DER precerts
     domain     TEXT NOT NULL,          -- the domain that triggered the alert
     domains    TEXT,                   -- JSON list: all domains on the cert
     score      REAL NOT NULL,

@@ -91,7 +91,7 @@ def process_batch(records, threshold):
                 "issuer": rec["issuer"],
                 "log": rec["log"],
                 "verify": v.get("status"),
-                "crtsh_url": f"https://crt.sh/?q={rec['id']}",
+                "crtsh_url": rec["crtsh_url"],
             }
             try:
                 alert = sign(alert)
@@ -198,7 +198,7 @@ def process_batch_engine(records, cfg):
                     c["allowlisted"] += 1
                 continue
             c["stage0_hits" if d["verdict"] == "scam" else d["verdict"]] += 1
-            ctx = {"cert_id": rec["id"], "domains": rec["domains"], "seen_at": rec["seen_at"],
+            ctx = {"cert_id": rec["id"], "crtsh_url": rec["crtsh_url"], "domains": rec["domains"], "seen_at": rec["seen_at"],
                    "issuer": rec["issuer"], "log": rec["log"], "verify": v.get("status", "fail"),
                    "other_gated": gated - (1 if d["stage"] >= 2 else 0)}
             if d["verdict"] == "scam" and eng.stage0 is not None:
