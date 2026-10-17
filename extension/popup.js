@@ -123,17 +123,6 @@
       $('entry-count-sub').textContent = 'list entries';
     }
 
-    // "ML model trained on N labeled domains", from the signed list.
-    const model = list.model;
-    if (model && model.n_train != null) {
-      $('model-train').textContent = formatCount(model.n_train);
-      $('model-train-sub').textContent = 'labeled domains' +
-        (model.n_val != null ? ' (+' + formatCount(model.n_val) + ' to validate)' : '');
-    } else {
-      $('model-train').textContent = '–';
-      $('model-train-sub').textContent = list.demoMode ? 'demo list' : 'not reported yet';
-    }
-
     $('last-sync').textContent = list.demoMode ? 'bundled demo list' : timeAgo(list.lastSuccessAt);
     $('list-source').textContent = list.loaded ? (list.source || 'live') : 'none';
 
@@ -144,7 +133,47 @@
     $('sync-error').hidden = !errorText;
   }
 
+  // ---- Step 4: alert mode ------------------------------------------------------
+  // background.js opens this popup by itself when a flagged site is opened,
+  // and leaves an alert record for that tab. Show it as a red scam alert.
+  function renderAlert(alert, tabId) {
+    document.body.classList.add('alerting');
+    $('alert').hidden = false;
+    $('alert-host').textContent = alert.hostname || '';
+    if (alert.matched && alert.matched !== alert.hostname) {
+      $('alert-matched').textContent = 'Part of ' + alert.matched + ', which is on the list.';
+      $('alert-matched').hidden = false;
+    }
+    if (typeof alert.score === 'number') {
+      $('alert-fill').style.width = Math.round(Math.min(1, Math.max(0, alert.score)) * 100) + '%';
+      $('alert-score').textContent = 'Score ' + M.formatScore(alert.score);
+      $('alert-meter').hidden = false;
+    }
+    const list = $('alert-reasons');
+    list.textContent = '';
+    for (const code of alert.reasons || []) {
+      const li = document.createElement('li');
+      li.textContent = M.explainReason(code);
+      list.appendChild(li);
+    }
+    list.hidden = !(alert.reasons && alert.reasons.length);
+
+    $('alert-ok').addEventListener('click', async () => {
+      await chrome.runtime.sendMessage({ type: 'dismissAlert', tabId });
+      window.close();
+    }, { once: true });
+  }
+
   async function refresh() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.id !== undefined && !document.body.classList.contains('alerting')) {
+      const res = await chrome.runtime.sendMessage({ type: 'getTabAlert', tabId: tab.id });
+      if (res && res.alert) {
+        renderAlert(res.alert, tab.id);
+        renderList(res.list);
+        return;
+      }
+    }
     const url = await currentUrl();
     const res = await chrome.runtime.sendMessage({ type: 'checkUrl', url });
     if (res && res.check) renderStatus(res.check, res.list);

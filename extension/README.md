@@ -158,8 +158,12 @@ reaches the VM.
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and pick the `extension/` folder.
 4. Pin Scamouflage from the puzzle-piece menu. Click it: the popup shows how
-   many flagged sites you're compared against, how many labeled domains the
-   ML model was trained on (from `thresholds.json`), the last sync time, and the source.
+   many flagged sites you're compared against, the last sync time, and the list
+   source (with an "Open dashboard" link).
+
+When you open a flagged site, the tab switches to the full-page red warning and
+the popup also opens by itself as a red "Scam alert" (Chrome 127 or newer, and
+only while the window is focused; otherwise just the warning page appears).
 
 After editing any extension file, click the reload icon on the extension's card.
 

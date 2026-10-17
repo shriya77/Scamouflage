@@ -13,6 +13,31 @@
     <span id="live-pill" class="pill pill-live" hidden>Live</span>
   </header>
 
+  <!-- Alert mode: opened automatically when a flagged site is opened. -->
+  <section id="alert" class="alert" role="alertdialog" aria-labelledby="alert-title" hidden>
+    <div class="alert-head">
+      <div class="alert-ring" aria-hidden="true">!</div>
+      <div>
+        <div class="alert-kicker">Scam alert</div>
+        <div id="alert-title" class="alert-title">Likely scam site flagged</div>
+      </div>
+    </div>
+    <div class="alert-body">
+      <div id="alert-host" class="alert-host"></div>
+      <div id="alert-matched" class="alert-matched" hidden></div>
+      <div id="alert-meter" class="score-meter" hidden>
+        <div class="score-track"><div id="alert-fill" class="score-fill"></div></div>
+        <span id="alert-score" class="score-label"></span>
+      </div>
+      <ul id="alert-reasons" class="alert-reasons"></ul>
+      <p class="alert-note">
+        Scamouflage showed a warning before you could use this site. Don't enter
+        card details, passwords, or personal information on it.
+      </p>
+      <button id="alert-ok" class="btn btn-danger" type="button" autofocus>Got it</button>
+    </div>
+  </section>
+
   <main>
     <section id="status" class="status status-loading" aria-live="polite">
       <div class="status-icon" aria-hidden="true"></div>
@@ -29,15 +54,12 @@
     </section>
 
     <section class="stats" aria-label="About the list">
-      <div class="stat">
-        <div class="stat-label">Compared against</div>
+      <div class="stat stat-wide">
+        <div>
+          <div class="stat-label">Compared against</div>
+          <div class="stat-sub" id="entry-count-sub">flagged sites</div>
+        </div>
         <div class="stat-value" id="entry-count">–</div>
-        <div class="stat-sub" id="entry-count-sub">flagged sites</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">ML model trained on</div>
-        <div class="stat-value" id="model-train">–</div>
-        <div class="stat-sub" id="model-train-sub">labeled domains</div>
       </div>
       <div class="stat">
         <div class="stat-label">Last sync</div>
@@ -46,6 +68,7 @@
       <div class="stat">
         <div class="stat-label">List source</div>
         <div class="stat-value stat-value-sm" id="list-source">–</div>
+        <a id="dashboard" class="stat-link" href="#">Open dashboard &rarr;</a>
       </div>
     </section>
 
@@ -53,7 +76,6 @@
 
     <div class="buttons">
       <button id="sync-now" class="btn btn-primary" type="button">Sync now</button>
-      <a id="dashboard" class="btn btn-secondary" href="#">Scamouflage dashboard</a>
     </div>
   </main>
 
