@@ -291,6 +291,19 @@ def test_missing_db_and_default_path():
             os.environ["LABELS_DB"] = old
 
 
+def test_fast_clean_matches_engine_clean():
+    import random
+    from model.features import clean_host
+    cases = ["ezpass.com-abc.test", "EZPASS.com-abc.test", "*.a.test", "*.*.a.test", "www.a.test",
+             "*.www.a.test", "a.test.", ".a.test", "-a.test", "a..test", "1.2.3.4", "1.2.3",
+             "::1", "a.test ", " a.test", "www.", "*.", "", None, 7, "xn--bcher-kva.test", "a_b.test"]
+    rnd = random.Random(0)
+    alphabet = "ab1.-*wW_ :"
+    cases += ["".join(rnd.choice(alphabet) for _ in range(rnd.randint(0, 12))) for _ in range(20000)]
+    for c in cases:
+        assert stage0.clean(c) == clean_host(c), repr(c)
+
+
 def test_registered_domain_helper():
     rd = stage0.registered_domain
     assert rd("evil.github.io") == "evil.github.io"

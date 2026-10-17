@@ -47,6 +47,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import sqlite3
 import sys
 import time
@@ -120,6 +121,20 @@ def _parents(host: str):
         i = host.find(".", i + 1)
 
 
+_ALREADY_CLEAN = re.compile(r"[a-z0-9.-]*[a-z-][a-z0-9.-]*")
+
+
+def clean(raw) -> str | None:
+    """features.clean_host (the engine's cleaning), with a fast path for names that are already
+    clean: lowercase [a-z0-9.-] with a letter or hyphen (so never an IP address), no leading
+    "www.", no trailing dot, no "..". For those clean_host returns the name unchanged, so the
+    result is identical; it just skips ~4 us of work per name. Everything else goes to clean_host."""
+    if (type(raw) is str and _ALREADY_CLEAN.fullmatch(raw) and "." in raw and ".." not in raw
+            and not raw.endswith(".") and not raw.startswith(("www.", "."))):
+        return raw
+    return clean_host(raw)
+
+
 def rss_mb() -> tuple[float, str]:
     """(megabytes, "current" | "peak"). Linux reads /proc; elsewhere only the peak is known."""
     try:
@@ -142,9 +157,11 @@ class KnownList:
         con = self._connect()
         try:
             con.execute("BEGIN")  # one consistent snapshot while the feeds loop writes
-            g = self._read_guards(con)
-            self._apply_guards(g)
-            self._read_rows(con, 0, g)
+            neg_hosts, self._neg_fp = self._negative_hosts(con)
+            self.n_negatives = len(neg_hosts)
+            self._read_rows(con, 0, neg_hosts)
+            del neg_hosts
+            self._rd_blocked = self._blocked_among(con, self.hosts)
         finally:
             con.close()
         self.load_seconds = time.perf_counter() - t0
@@ -154,7 +171,8 @@ class KnownList:
     # ------------------------------------------------------------------ loading
     def _reset(self):
         # host -> (brand, category, feed). The tuples are shared: one per distinct combination,
-        # so 500k+ hosts cost one dict slot each, not one object each.
+        # so 500k+ hosts cost one dict slot each, not one object each. (Measured on the VM: a
+        # dict with shared values is smaller than a set of the same strings.)
         self.hosts: dict[str, tuple] = {}
         self._meta: dict[tuple, tuple] = {}
         self._rd_blocked: set[str] = set()   # listed, but rule (b) must not fire through them
@@ -165,8 +183,8 @@ class KnownList:
         self.duplicate_rows = 0              # same host from another feed
         self.watermark = 0                   # highest rowid read
         self._neg_fp = None                  # (count, max rowid) of negatives at the last read
-        self._official: frozenset = frozenset()
         self.n_negatives = 0
+        self._official = self._read_official()
         self._inode = os.stat(self.db_path).st_ino
 
     def _connect(self) -> sqlite3.Connection:
@@ -180,65 +198,68 @@ class KnownList:
             m = self._meta[key] = tuple(sys.intern(x) if x else None for x in key)
         return m
 
-    def _read_guards(self, con) -> dict:
-        neg_hosts, neg_domains = set(), set()
-        fp = None
-        try:
-            for h, d in con.execute("SELECT host, domain FROM negatives"):
-                h, d = clean_host(h), clean_host(d)
-                if h:
-                    neg_hosts.add(h)
-                if d:
-                    neg_domains.add(d)
-            fp = tuple(con.execute("SELECT COUNT(*), MAX(rowid) FROM negatives").fetchone())
-        except sqlite3.OperationalError as e:
-            log.warning("Stage 0: no negatives table (%s); both_lists guard is off", e)
-        official = self._read_official()
-        # These sets (~300k names) are only kept while loading, never between refreshes.
-        return {"neg_hosts": neg_hosts, "official": official, "fp": fp,
-                "no_rd": neg_hosts | neg_domains | official}
-
     def _read_official(self) -> frozenset:
         out = set()
         if self.official_file and os.path.exists(self.official_file):
             with open(self.official_file, encoding="utf-8") as f:
                 for line in f:
-                    h = clean_host(line.split("#", 1)[0])
+                    h = clean(line.split("#", 1)[0])
                     if h:
                         out.add(h)
         return frozenset(out)
 
-    def _apply_guards(self, g: dict):
-        """(Re)check every loaded host against new negatives. One pass over the guard sets."""
-        self._neg_fp = g["fp"]
-        self._official = g["official"]
-        self.n_negatives = len(g["neg_hosts"])
-        for h in g["neg_hosts"] | g["official"]:
-            if h in self.hosts:
-                del self.hosts[h]
-                self._removed[h] = "official" if h in g["official"] else "both_lists"
-        self._rd_blocked = {h for h in g["no_rd"] if h in self.hosts}
-
     @staticmethod
-    def _drop_reason(h: str, g: dict) -> str | None:
+    def _negatives_fp(con):
+        try:
+            return tuple(con.execute("SELECT COUNT(*), MAX(rowid) FROM negatives").fetchone())
+        except sqlite3.OperationalError:
+            return None
+
+    def _negative_hosts(self, con) -> tuple[set, tuple | None]:
+        """Cleaned hosts of the negatives table. Only held while loading (~300k names)."""
+        out = set()
+        try:
+            for (h,) in con.execute("SELECT host FROM negatives"):
+                h = clean(h)
+                if h:
+                    out.add(h)
+        except sqlite3.OperationalError as e:
+            log.warning("Stage 0: no negatives table (%s); both_lists guard is off", e)
+            return out, None
+        return out, self._negatives_fp(con)
+
+    def _blocked_among(self, con, pool) -> set:
+        """Listed hosts (in pool) that are some negative's registered domain: rule (b) must not
+        fire through them. Streams the table instead of holding another 300k-name set."""
+        out = set()
+        try:
+            for (d,) in con.execute("SELECT domain FROM negatives"):
+                d = clean(d)
+                if d and d in pool:
+                    out.add(d)
+        except sqlite3.OperationalError:
+            pass
+        return out
+
+    def _drop_reason(self, h: str, neg_hosts: set) -> str | None:
         if is_public_suffix(h):
             return "public_suffix"
-        if h in g["official"] or any(p in g["official"] for p in _parents(h)):
+        official = self._official
+        if h in official or any(p in official for p in _parents(h)):
             return "official"
-        if h in g["neg_hosts"]:
+        if h in neg_hosts:
             return "both_lists"
         return None
 
-    def _read_rows(self, con, after_rowid: int, g: dict) -> int:
+    def _read_rows(self, con, after_rowid: int, neg_hosts: set, added_hosts=None) -> int:
         """Load rows with rowid > after_rowid. Returns how many new hosts were added."""
         hosts, added = self.hosts, 0
-        no_rd = g["no_rd"]
-        rows = con.execute(f"SELECT rowid, host, brand, category, feed FROM labels "
-                           f"WHERE rowid > ? ORDER BY rowid", (after_rowid,))
+        rows = con.execute("SELECT rowid, host, brand, category, feed FROM labels "
+                           "WHERE rowid > ? ORDER BY rowid", (after_rowid,))
         for rowid, raw, brand, category, feed in rows:
             self.rows_seen += 1
             self.watermark = rowid
-            h = clean_host(raw)
+            h = clean(raw)
             if not h:
                 self.junk_rows += 1
                 continue
@@ -248,15 +269,15 @@ class KnownList:
                 if old[0] is None and brand:  # keep the branded row's metadata
                     hosts[h] = self._meta_for(brand, category, old[2])
                 continue
-            reason = self._removed.get(h) or self._drop_reason(h, g)
+            reason = self._removed.get(h) or self._drop_reason(h, neg_hosts)
             if reason:
                 self.removed_rows[reason] += 1
                 self._removed[h] = reason
                 continue
             hosts[h] = self._meta_for(brand, category, feed)
             added += 1
-            if h in no_rd:
-                self._rd_blocked.add(h)
+            if added_hosts is not None:
+                added_hosts.append(h)
         return added
 
     # ------------------------------------------------------------------ refresh
@@ -279,24 +300,26 @@ class KnownList:
                                   (self.watermark,)).fetchone()[0]
                 if total != self.rows_seen + new:
                     return self._full_reload(f"row count {total} != {self.rows_seen} read + {new} new")
-                neg_fp = None
-                try:
-                    neg_fp = tuple(con.execute("SELECT COUNT(*), MAX(rowid) FROM negatives").fetchone())
-                except sqlite3.OperationalError:
-                    pass
-                if new == 0 and neg_fp == self._neg_fp:
+                neg_changed = self._negatives_fp(con) != self._neg_fp
+                if new == 0 and not neg_changed:
                     return 0
-                before = len(self.hosts)
-                g = self._read_guards(con)
-                if neg_fp != self._neg_fp:
-                    self._apply_guards(g)
-                added = self._read_rows(con, self.watermark, g)
-                del g
+                neg_hosts, self._neg_fp = self._negative_hosts(con)
+                self.n_negatives = len(neg_hosts)
+                if neg_changed:  # a listed host may now be a known-good site
+                    for h in neg_hosts:
+                        if self.hosts.pop(h, None) is not None:
+                            self._removed[h] = "both_lists"
+                new_hosts = []
+                added = self._read_rows(con, self.watermark, neg_hosts, new_hosts)
+                del neg_hosts
+                if neg_changed:
+                    self._rd_blocked = self._blocked_among(con, self.hosts)
+                elif new_hosts:
+                    self._rd_blocked |= self._blocked_among(con, set(new_hosts))
             finally:
                 con.close()
-            if added or len(self.hosts) != before + added:
-                log.info("Stage 0 refresh: +%d hosts (%d now), watermark rowid %d",
-                         added, len(self.hosts), self.watermark)
+            log.info("Stage 0 refresh: +%d hosts (%d now), watermark rowid %d",
+                     added, len(self.hosts), self.watermark)
             return added
         except Exception:
             log.exception("Stage 0 refresh failed; keeping the current list")
@@ -315,7 +338,7 @@ class KnownList:
         try:
             if not isinstance(host, str):
                 return None, None, None
-            h = clean_host(host)
+            h = clean(host)
             if not h:
                 return None, None, None
             hosts = self.hosts
