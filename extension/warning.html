@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Warning: likely scam site</title>
+  <link rel="stylesheet" href="warning.css">
+</head>
+<body>
+  <main class="card" role="alert" aria-live="assertive">
+    <div class="icon" aria-hidden="true">!</div>
+
+    <h1 id="headline">Scamouflage flagged this site as a likely toll scam.</h1>
+
+    <p class="domain-line">
+      Site: <span id="domain" class="domain"></span>
+      <span id="matched-note" class="matched-note" hidden></span>
+    </p>
+
+    <section class="reasons">
+      <h2>Reasons:</h2>
+      <ul id="reasons"></ul>
+    </section>
+
+    <p class="observed" id="observed"></p>
+
+    <p class="advice">
+      Toll agencies, USPS, the DMV, and the IRS do not ask you to pay through a
+      link in a text message. If you're worried about a bill, type the official
+      website address yourself.
+    </p>
+
+    <div class="actions">
+      <button id="go-back" class="primary" type="button" autofocus>Go back</button>
+      <button id="continue" class="secondary" type="button">Continue anyway</button>
+    </div>
+
+    <p class="fineprint">
+      This list is generated automatically from new HTTPS certificates. A
+      flagged site is a likely scam, not a confirmed one.
+      <span id="source"></span>
+    </p>
+  </main>
+
+  <script src="matcher.js"></script>
+  <script src="warning.js"></script>
+</body>
+</html>
