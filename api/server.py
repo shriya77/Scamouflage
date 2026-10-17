@@ -70,8 +70,15 @@ def decode_row(row):
     return out
 
 
-def fetch_alerts(limit=100, after_rowid=0, since=None):
-    """since: only alerts with seen_at > since (ISO string or unix seconds)."""
+def has_stage(conn):
+    """True once the consumer has added alerts.stage (0 = known, >0 = new)."""
+    return any(r[1] == "stage" for r in conn.execute("PRAGMA table_info(alerts)"))
+
+
+def fetch_alerts(limit=100, after_rowid=0, since=None, stage=None):
+    """since: only alerts with seen_at > since (ISO string or unix seconds).
+    stage: only alerts with that stage. Without a stage column every alert
+    counts as new, so stage=0 matches nothing and stage>0 matches everything."""
     conn = db()
     if conn is None:
         return None
@@ -81,6 +88,12 @@ def fetch_alerts(limit=100, after_rowid=0, since=None):
         if since:
             sql += " AND seen_at > ?"
             args.append(float(since) if since.replace(".", "", 1).isdigit() else since)
+        if stage is not None:
+            if has_stage(conn):
+                sql += " AND stage = ?"
+                args.append(stage)
+            elif stage == 0:
+                return []
         sql += " ORDER BY rowid DESC LIMIT ?"
         args.append(limit)
         rows = conn.execute(sql, args).fetchall()
@@ -151,6 +164,7 @@ def mock_alert(i=None):
         "verify": {"status": "ok", "algo": "ecdsa-p256"},
         "crtsh_url": "https://crt.sh/",
         "sig": "MOCK", "key_id": "mock",
+        "stage": 0 if i % 3 == 0 else 1,
     }
 
 
@@ -197,6 +211,11 @@ json_file_route("/api/hardware", "hardware.json")
 json_file_route("/api/cpacf/live", "cpacf_live.json", "/api/cpacf")
 
 
+def bad_request(msg):
+    return web.HTTPBadRequest(text=json.dumps({"error": msg}),
+                              content_type="application/json")
+
+
 @routes.get("/api/alerts")
 async def alerts(request):
     try:
@@ -204,13 +223,48 @@ async def alerts(request):
     except ValueError:
         limit = 100
     since = request.query.get("since")
-    rows = fetch_alerts(limit, since=since)
+    stage = request.query.get("stage")
+    if stage is not None:
+        try:
+            stage = int(stage)
+        except ValueError:
+            raise bad_request("stage must be an integer")
+    rows = fetch_alerts(limit, since=since, stage=stage)
     if rows is None:
         items = MOCK_ALERTS
         if since:
             items = [a for a in items if a["seen_at"] > since]
+        if stage is not None:
+            items = [a for a in items if a["stage"] == stage]
         return ok({"items": items[:limit]}, "mock")
     return ok({"items": rows}, "live")
+
+
+# Registered before /api/alerts/{id} so "summary" isn't taken as an id.
+@routes.get("/api/alerts/summary")
+async def alerts_summary(request):
+    """known_total = stage 0, new_total = stage > 0. No stage column -> all new."""
+    conn = db()
+    if conn is not None:
+        try:
+            if has_stage(conn):
+                known, new, total = conn.execute(
+                    "SELECT COALESCE(SUM(stage = 0), 0), COALESCE(SUM(COALESCE(stage, 1) > 0), 0),"
+                    " COUNT(*) FROM alerts").fetchone()
+                has_col = True
+            else:
+                known, new, total = 0, *conn.execute(
+                    "SELECT COUNT(*), COUNT(*) FROM alerts").fetchone()
+                has_col = False
+            return ok({"known_total": known, "new_total": new, "total": total,
+                       "stage_column": has_col}, "live")
+        except sqlite3.OperationalError:  # table not created yet
+            pass
+        finally:
+            conn.close()
+    known = sum(a["stage"] == 0 for a in MOCK_ALERTS)
+    return ok({"known_total": known, "new_total": len(MOCK_ALERTS) - known,
+               "total": len(MOCK_ALERTS), "stage_column": True}, "mock")
 
 
 @routes.get("/api/alerts/{id}")
