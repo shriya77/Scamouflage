@@ -37,7 +37,9 @@ from . import features as F
 log = logging.getLogger("scamouflage.engine")
 
 ROOT = F.ROOT
-DEFAULT_MODEL_DIR = os.path.join(ROOT, "models")
+# Trained model files are NOT in git. They live in the shared data folder (data/ -> ~/tolltrap/data on
+# the VM), so every clone — and the consumer — loads the same model. Override with SCAM_MODELS.
+DEFAULT_MODEL_DIR = os.environ.get("SCAM_MODELS") or os.path.join(ROOT, "data", "models")
 DEFAULT_THRESHOLDS = {"t_high": 0.90, "t_low": 0.50}   # placeholders until train_stage1.py writes thresholds.json
 
 MAX_BOOST = 0.6          # Stage 2 cap

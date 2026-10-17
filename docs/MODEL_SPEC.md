@@ -167,9 +167,16 @@ class KnownList:
   labels. The PSL is only consulted when some parent of the name is listed (LRU cached).
 - **Guards:** drop listed names that are a public suffix (107 rows), official or under an official
   site (2), or also in `negatives` (0); rule (b) never fires through a negative's registered domain
-  (1 host). **Gap:** `feeds.py negatives` samples 300k of Tranco's 1M and leaves out every name
-  already on a scam list, so a poisoned big site (e.g. `nflxvideo.net`, listed by phishing_database)
-  is not stopped. Needs an unfiltered top-N Tranco table to guard against.
+  (1 host). `both_lists` stops nothing because `feeds.py negatives` leaves out every name already
+  on a scam list, so a poisoned big site (e.g. `nflxvideo.net`, listed by phishing_database) got
+  through. **tranco_top guard:** if labels.db has a `tranco_top` table (Tranco top 100k by rank,
+  NOT minus the scam lists; proposed `feeds.py tranco`, pending), drop a listed name that is itself
+  in it. A listed name under a top site (`evil.weebly.com`) keeps its exact match; rule (b) never
+  fires through a top site because a top site is never in the list. No table = guard off.
+  Measured on a scratch copy of the VM DB (2026-10-17): removes 136 rows / 113 hosts (linkedin.com,
+  github.com, nflxvideo.net, ups.com, bit.ly, ...; 1 branded: dhl24.com.pl). 59,089 listed tenants
+  under 1,095 top domains (weebly.com, 000webhostapp.com, ...) stay as exact matches. Bench: 54 → 50
+  hits, only the two `*.nflxvideo.net` names gone. Load 2.5 → 2.7 s, RSS +68.5 → +72.7 MB.
 - **Refresh column:** `rowid` (not `last_seen`: feeds.py rewrites `last_seen` on every row each
   pull). Full reload if rows were deleted, the file replaced, or `official.txt` changed.
 - **Measured on the VM** (2026-10-17, 697,829 rows → 544,038 hosts): load 2.8 s, +68.5 MB RSS per
@@ -261,6 +268,17 @@ class Stage2:
   scam, mapped to a boost with `b = min(0.6, max(0, p − 0.5) × 1.2)`. Report v1 vs v2 on held-out
   certs (split by registered domain).
 - Must never return a negative number. Must not raise; on any error return 0.0 and log once.
+
+**As built (v1, `model/stage2.py`, report `reports/stage2_eval.md`).** The example table above was
+measured on 7,199 gated live certificates (26 min of the stream) and boosted 42.6 % of them:
+misspelling matches on ordinary words (vercel ~ parcel, tools ~ tolls), one real site with many
+subdomains, `us-west-2` cloud names. v1 counts exact brand words only (one per name) and a strict
+kit pattern: +0.30 for 2+ different brands on one cert, +0.15 more for 3+, +0.15 for brand names on
+3+ registered domains, +0.10 for 2+ `.com-`/`gov-` names next to a brand; 0 if the cert covers an
+official site; cap 0.6. Result: 0 of 7,199 gated live certs boosted; 0 of 12 known-scam certs from
+crt.sh (nearly all single-name, which is neutral by design). Most known toll/delivery/gov scams are
+one name on one domain (73 of 3,512 registered domains have 2+ listed names), so Stage 2 rarely
+fires. v2 is not possible yet (needs 500+ labeled scam certs). `boost()` 55 µs per new cert on s390x.
 
 ## 8. Stage 3 — Verifier (owner Shadow) — `model/stage3.py`
 
