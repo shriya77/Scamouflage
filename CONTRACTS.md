@@ -80,13 +80,13 @@ seen(domain PK, first_cert_seen, cert_id)                    -- written by consu
 |---|---|---|---|
 | `stats.json` | A | every 1 s | `ts, uptime_s, msgs_total, certs_total, dupes_total, precert_total, cert_total, processed_total, alerts_total, msgs_per_s, certs_per_s, verify{}, avg_verify_ms, avg_score_ms, queue_depth, dropped_total, lag_s, top_logs{}, last_alert{}`, `engine{}` (see below) and, with the engine on: `names_checked, names_per_s, gate_passes, stage0_hits, high, maybe, stage3{}, alerts_new, alerts_known, alerts_by_category{}, alerts_deduped, official_blocked, allowlisted_names, engine_ms_per_cert, max_engine_ms_per_cert, proc_lag_s, max_proc_lag_s, unique_names_per_day, unique_names_estimate{}, recent_names[], recent_alerts[], stage3_examples{}, engine_errors, batch_errors` |
 | `results.json` | C | once per training run | model vs baselines: precision/recall at 1 FP per 10k, PR curve points, time-split info |
-| `leadtime.json` | B | on demand | per-domain lead times + median/p90 vs each feed |
+| `leadtime.json` | B | hourly (`model/lead_time.py`, tmux `cc-leadtime`) | `n` (our stage≥1 alerts a feed listed later), `n_alerts_new`, `n_later_on_a_feed`, `share_before_any_feed`, `median_days`, `min_days`, `max_days`, `p90_days`, `examples[]`, `method`, `generated_at`. Stage-0 alerts never count. |
 | `hardware.json` | D | on demand | CPACF A/B numbers (on vs `OPENSSL_s390xcap` off), PAI counter deltas, `protected_keys{dir, bytes{protkey_aes_*: int}, pckmo_delta{}}` (file names + byte lengths only, never key bytes) |
 | `cpacf_live.json` | D | every 2 s (`bench.counters`, tmux `cpacf`) | `ts, interval_s, available, totals{name: int}, rates_per_s{name: float}, groups{ecdsa_verify_per_s, eddsa_sign_per_s, eddsa_verify_per_s, sha_per_s, aes_per_s, trng_per_s}, error` (see below) |
 | `alert_pubkey.pem` | D | once (`alerts.keygen`) | PEM public key for the alert signatures (`keys/alert_ed25519.pem`). Safe to publish. |
 
 Engine keys in `stats.json`:
-- `engine`: `{mode: "on"|"off", stage0, stage1, stage2, stage3: "real"|"stub", stage1_version, t_high, t_low, stage0_hosts, stage0_refreshes, workers{pid: {rss_mb, load_s, stage0_hosts, stage0_refreshes, stage0_last_added}}}`. A stage is "real" only if every worker loaded it.
+- `engine`: `{mode: "on"|"off", stage0, stage1, stage2, stage3: "real"|"stub", stage1_version, t_high, t_low, stage0_hosts, stage0_refreshes, workers{pid: {rss_mb, load_s, stage0_hosts, stage0_refreshes, stage0_last_added}}, signing{ok, key_id, error}}`. A stage is "real" only if every worker loaded it. `signing.ok` is false if alerts would be saved unsigned (missing key); the consumer also prints a WARNING at startup.
 - `names_checked` = clean names the engine looked at (per certificate, so a precert + cert pair counts twice); `gate_passes`, `stage0_hits`, `high`, `maybe` count the same way. `stage3.queued_high` / `queued_maybe` count distinct names sent to Stage 3.
 - `stage3`: `confirmed` (HIGH, RDAP answered, scam), `kept_unverified` (HIGH, no answer, alerted on the score), `removed` (HIGH -> safe, old domain), `rescued` (MAYBE -> scam, new domain), `cleared` (MAYBE -> safe with an answer), `dropped_unverified` (MAYBE, no answer -> safe), `failed` + `failed_by_reason{timeout, rate_limited, not_found, other, shared_hosting, deadline, queue_full, no_stage3, shutdown}`, `queue_depth`, `max_queue_depth`, `queue_full`, `lookups`, `lookups_per_s`, `max_lookups_per_s_10s`, `max_wait_s`.
 - `lag_s` = now − the newest certificate's `seen` (meaningless in a replay); `proc_lag_s` = time from receiving a certificate to its results being written.
@@ -97,18 +97,34 @@ Engine keys in `stats.json`:
 
 Write JSON **atomically** (write `x.tmp` then `os.replace`) so the API never reads half a file.
 
-## 5. API (Role F, port 8000, localhost only. Reach it through an SSH tunnel.)
+## 5. API and website (Role F, `api/server.py`, port 8000)
 
-`GET /api/stats` · `GET /api/alerts?limit=&since=` · `GET /api/alerts/{id}` · `GET /api/campaigns` · `GET /api/results` · `GET /api/hardware` · `GET /api/cpacf/live` · `GET /api/blocklist` · `GET /api/pubkey` · `WS /ws/live` (push new alerts plus stats every second)
+Runs in tmux `cc-api` via `infra/start_api.sh` (auto-restart, log `data/api.log`), bound to **127.0.0.1:8000**. The VM firewall only lets SSH in, so from outside use a tunnel: `ssh -L 8000:localhost:8000 linux1@148.100.79.76`, then `http://localhost:8000/`.
 
-Crypto endpoints (data from Role D, served by F):
-- `GET /api/hardware`: `data/hardware.json` as-is.
-- `GET /api/cpacf/live`: `data/cpacf_live.json` as-is (format in section 4). Suggestion: `WS /ws/live` also pushes it (e.g. `{"type": "cpacf", ...}`) every 2 s next to stats, so the dashboard can show live KDSA/KIMD rates.
-- `GET /api/pubkey`: implemented in `backend/blocklist_route.py` (mounted by `setup_blocklist_route`). Returns the **blocklist** public key as JSON: `{"key_id": "scamouflage-vm-1", "alg": "Ed25519", "public_key_pem": "-----BEGIN PUBLIC KEY-----...", "public_key_b64": "<raw 32 bytes, same as config.js>", "signs": "/api/blocklist"}`. It is derived from the signing key, so it always matches the signatures. `503` if the key is missing. The **alert** public key is still only the file `data/alert_pubkey.pem` (TODO Role F: serve it too, e.g. `GET /api/alerts/pubkey`).
+**Real data only.** Every JSON answer carries `"source": "live"`. If a source doesn't exist yet (no `stats.json`, no DB), the endpoint answers **503** `{"error": "... not available yet", "source": "unavailable"}`. Nothing is ever made up (there are no mock answers).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /` (+ `/index.html`, `/app.js`, `/style.css`, `/logo.png`) | the website (`dashboard/`), same origin as the API, so it calls `/api/...` with relative URLs. Nothing else from the repo is served. |
+| `GET /api/stats` | `stats.json` as-is (section 4) + `lead_time` (below) |
+| `GET /api/alerts?limit=&since=&stage=` | `{"items": [alert, ...]}`, **newest first**. `limit` default 100, max 1000; `since` = seen_at (unix s or ISO) lower bound; `stage=0` known-list alerts only, `stage=1`… engine catches (NULL stage counts as 1). An `alert` is a full `alerts` row (section 3) with `domains`/`reasons` decoded to lists, plus `_rowid`. |
+| `GET /api/alerts/{id}` | one alert by numeric `id` or by `cert_id` (all Decision + signature fields); 404 if unknown |
+| `GET /api/alerts/summary` | `{known_total (stage 0), new_total (stage > 0), total, stage_column}` |
+| `GET /api/alerts/pubkey` | the **alert** signing public key: `{key_id, alg: "Ed25519", public_key_pem}` (from `data/alert_pubkey.pem`; 503 if missing) |
+| `GET /api/pubkey` | the **blocklist** public key: `{key_id: "scamouflage-vm-1", alg, public_key_pem, public_key_b64, signs: "/api/blocklist"}` |
+| `GET /api/blocklist` | the signed list for the extension (below) |
+| `GET /api/results`, `/api/leadtime`, `/api/hardware`, `/api/cpacf/live` (`/api/cpacf`) | `results.json`, `leadtime.json`, `hardware.json`, `cpacf_live.json` as-is (section 4) |
+| `GET /api/campaigns` | alerts grouped by name template (`ezpass.com-*.win`): `{items: [{template, count, max_score, first_seen, last_seen, domains[≤20]}]}` |
+| `GET /health`, `GET /api/health` | `{ok, stats_age_s, last_cert_seen_at, lag_s, certs_per_s, dropped_total, engine{mode, stage0..3, stage1_version, signing}, data_dir, db_exists, files{}}`. `ok` is false if `stats.json` is older than 60 s (consumer down), lag ≥ 60 s, or an engine stage is a stub. |
+| `WS /ws/live` | `{"type": "stats", "source": "live", "data": stats.json}` every second, `{"type": "cpacf", ...}` every 2 s, `{"type": "alert", "source": "live", "data": alert}` for each new alert (oldest first). Nothing is pushed for a missing source. |
+
+`lead_time` in `/api/stats` (from `leadtime.json`, `null` until the hourly job has run): `{n_later_listed, n_alerts_new, median_hours_early, share_before_any_feed, examples[], generated_at}`. Only stage ≥ 1 alerts count.
+
+**Show domains as plain text only, never as links.** The only clickable link is the alert's `crtsh_url` (crt.sh certificate record). Precerts that arrive without a DER hash have `cert_id` `sn:<sha256 of issuer + serial>` (`ingest/record.py`) and a `crtsh_url` that searches crt.sh by serial (by name if there is no serial).
 
 ### `GET /api/blocklist` (owned by Role F / extension, PR #3, `backend/blocklist_route.py`)
 
-Mount it with `from backend.blocklist_route import setup_blocklist_route; setup_blocklist_route(app)` (aiohttp; adds `/api/blocklist` and `/api/pubkey`). Or run it on its own: `.venv/bin/python -m backend.blocklist_route --host 127.0.0.1 --port 8000`. Needs `tldextract` (in `requirements.txt`). It signs with `keys/blocklist_ed25519.pem` in the repo (override with `TOLLTRAP_SIGNING_KEY=<path>`) and sends `key_id` `scamouflage-vm-1` (override with `TOLLTRAP_KEY_ID`); without the key it answers `503`. The signed body is rebuilt at most every 60 s (`TOLLTRAP_BLOCKLIST_CACHE_S`) and sent with `Cache-Control: no-store`.
+Mount it with `from backend.blocklist_route import setup_blocklist_route; setup_blocklist_route(app)` (aiohttp; adds `/api/blocklist` and `/api/pubkey`; `api/server.py` does). It reads the alerts DB and `labels.db` from the same `DATA_DIR` as the API. Or run it on its own: `.venv/bin/python -m backend.blocklist_route --host 127.0.0.1 --port 8000`. Needs `tldextract` (in `requirements.txt`). It signs with `keys/blocklist_ed25519.pem` in the repo (override with `TOLLTRAP_SIGNING_KEY=<path>`) and sends `key_id` `scamouflage-vm-1` (override with `TOLLTRAP_KEY_ID`); without the key it answers `503`. The signed body is rebuilt at most every 60 s (`TOLLTRAP_BLOCKLIST_CACHE_S`) and sent with `Cache-Control: no-store`.
 
 Response (the "envelope"):
 
@@ -118,11 +134,11 @@ Response (the "envelope"):
 
 - **What is signed:** the exact UTF-8 bytes of the `payload` **string** (not a re-serialized object). The extension checks the signature with tweetnacl *before* parsing, and only trusts key ids listed in `extension/config.js` `LIVE_KEYS`.
 - **`payload`** is compact JSON (`sort_keys`, `separators=(",",":")`, `ensure_ascii`):
-  `{"version": 1, "generated_at": "YYYY-MM-DDTHH:MM:SSZ", "threshold": 0.85, "entries": [...], "allowlist": [...]}`
+  `{"version": 1, "generated_at": "YYYY-MM-DDTHH:MM:SSZ", "threshold": 0.85, "entries": [...], "allowlist": [...], "flagged_hostnames": int, "model": {version, trained_at, n_train, n_val} | null}` (the last two are shown in the extension popup)
 - **`entries`** (sorted by `h`): `{"h": sha256 hex, "match_subdomains": bool, "score": float (4 dp), "reasons": [str, ≤10], "observed_at": ISO UTC of seen_at, "source": "live"|"replay"}`.
-- **Hashing:** `h` = SHA-256 of the normalized hostname's UTF-8 bytes (lowercase, `*.`/port/trailing dot removed, IDN → punycode, `www.` kept). No plain domains are published. For each flagged hostname the list gets the exact hostname (`match_subdomains: false`) plus its registrable domain (eTLD+1 from the Public Suffix List) with `match_subdomains: true`, unless the registrable domain is in `backend/no_wildcard_domains.txt`. On shared hosting platforms (PSL private section, e.g. `github.io`) only the exact host and the tenant are listed, without wildcard. A bare public suffix is never listed. Duplicates are merged by hash (highest score, earliest `observed_at`).
+- **Hashing:** `h` = SHA-256 of the normalized hostname's UTF-8 bytes (lowercase, `*.`/port/trailing dot removed, IDN → punycode, `www.` kept). No plain domains are published. For each flagged hostname the list gets the exact hostname (`match_subdomains: false`) plus its registrable domain (eTLD+1 from the Public Suffix List) with `match_subdomains: true`, unless the registrable domain is in `backend/no_wildcard_domains.txt`. On shared hosting platforms (PSL private section, e.g. `github.io`) only the exact host and the tenant are listed, without wildcard. If the registrable domain is a **popular site** (`tranco_top` table in `labels.db`, Tranco top 100k), only the exact host is listed: never the site itself and never `match_subdomains` (one feed hit on `mobileproxy.inside.ups.com` must not block ups.com). A bare public suffix is never listed. Duplicates are merged by hash (highest score, earliest `observed_at`).
 - **Allowlist:** `allowlist` = SHA-256 of every official domain in `backend/official_domains.txt` + `labels/official.txt`. A flagged hostname is skipped if it or any parent is official.
-- **Rows used:** every alert with `score >= 0.85` (`TOLLTRAP_BLOCKLIST_THRESHOLD`). There is no time window.
+- **Rows used:** every alert (stage 0 and engine catches) with `score >= 0.85` (`TOLLTRAP_BLOCKLIST_THRESHOLD`). There is no time window.
 - **The extension** hashes each visited hostname and its parents locally and looks them up, so the server never sees browsing.
 
 ### Keys and thresholds
@@ -140,7 +156,7 @@ The old blocklist key `tolltrap-dev-1` (private key only on one laptop) is retir
 
 TODO: merge to one signing key after the demo. Not now: it would break the key built into the extension.
 
-Thresholds: alerts are written at `score >= 0.8`. The blocklist only includes `score >= 0.85`, stricter on purpose, because it makes browsers show a warning.
+Thresholds: the engine writes an alert when its final verdict is `scam` (Stage 0 hit, or Stage 1+2 score ≥ T_high / ≥ T_low with Stage 3 rules; T_high 0.90, T_low 0.30 in `models/thresholds.json`). With `--no-engine` the old path alerts at `score >= 0.8`. The blocklist only includes `score >= 0.85`, stricter on purpose, because it makes browsers show a warning.
 
 ## 6. Safety rules (everyone)
 
