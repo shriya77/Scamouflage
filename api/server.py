@@ -327,6 +327,8 @@ def health_payload(now=None):
     eng = st.get("engine") or {}
     age = round(now - st["ts"], 1) if st.get("ts") else None
     last_cert = st.get("last_seen_at")
+    if last_cert is None and st.get("ts") and st.get("lag_s") is not None:
+        last_cert = round(st["ts"] - st["lag_s"], 1)   # stats.json: lag_s = ts - last cert seen_at
     stages = {k: eng.get(k) for k in ("stage0", "stage1", "stage2", "stage3")}
     healthy = (age is not None and age < STALE_S and (st.get("lag_s") or 0) < 60
                and (eng.get("mode") != "on" or all(v == "real" for v in stages.values())))

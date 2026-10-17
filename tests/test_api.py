@@ -125,6 +125,7 @@ def test_health(d):
             h = await (await c.get(path)).json()
             assert h["ok"] is True and h["engine"]["stage1"] == "real" and h["engine"]["signing"] is True
             assert h["lag_s"] == 0.2 and h["stats_age_s"] < 5
+            assert h["last_cert_seen_at"] == 1792279000.0
         assert server.health_payload(now=time.time() + 120)["ok"] is False   # stale stats = down
     run(check, d)
 
@@ -137,7 +138,8 @@ def test_health_flags_a_stub_stage(d):
                               "stage2": "real", "stage3": "real"}}, f)
 
     async def check(c, server):
-        assert (await (await c.get("/health")).json())["ok"] is False
+        h = await (await c.get("/health")).json()
+        assert h["ok"] is False and h["last_cert_seen_at"] is not None   # from ts - lag_s
     run(check, d)
 
 
