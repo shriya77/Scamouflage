@@ -40,7 +40,7 @@ CT logs -> certstream-server-go (:8080) -> ingest/consumer.py
 
 | Owner | Import | Signature | Returns |
 |---|---|---|---|
-| D | `from verify.verify import verify` | `verify(record)` | `{"status": "ok"\|"fail"\|"unknown_issuer", "algo": "ecdsa-p256"\|...}` |
+| D | `from verify.verify import verify` | `verify(record)` | `{"status": "ok"\|"fail"\|"unknown_issuer", "algo": "ecdsa-p256"\|..., "reason": str}` |
 | B/C | `from features.features import featurize` | `featurize(record)` | `dict[str, float]` (flat, numbers only) |
 | C | `from model.model import score` | `score(features)` | `{"score": float 0..1, "reasons": [str, ...]}`. Keep reasons short and human-readable, e.g. `"brand 'ezpass' + .win TLD"` |
 | D | `from alerts.sign import sign` | `sign(alert)` | same dict plus `"sig"` (base64) and `"key_id"` |

@@ -66,3 +66,14 @@ Swap your real function into your file (e.g. `model/model.py`) and run the consu
 ## Safety
 
 We never visit scam sites. Domains are shown as plain text with links to [crt.sh](https://crt.sh) only. Signing keys never leave the VM and are git-ignored.
+
+## Crypto (Role D) on the VM
+
+```bash
+.venv/bin/python -m alerts.keygen                       # once: signing key (keys/, never committed)
+.venv/bin/python -m verify.check data/recordings/ct-20261017-152933.jsonl.gz --n 20000
+sudo cpacfstatsd; sudo cpacfstats -e                    # optional: live hardware counters
+.venv/bin/python -m bench.cpacf_ab data/recordings/ct-20261017-152933.jsonl.gz   # -> data/hardware.json
+.venv/bin/python -m alerts.check                        # verify the newest alerts' signatures
+.venv/bin/python -m alerts.check 42 --tamper            # demo: edited alert -> INVALID
+```
