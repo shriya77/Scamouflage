@@ -20,7 +20,7 @@ const CONFIG = {
   },
   WS_PATH: '/ws/live',           // live stream (domain names + alerts), optional
 
-  EXTENSION_URL: '#',            // TODO: Chrome Web Store link or a download link
+  EXTENSION_URL: '#',            // optional: a download link for the extension folder (shows a Download button)
   POLL_MS: 2000,
   CATCHES_LIMIT: 15,
   FIREHOSE_PX_PER_S: 120,        // stream scroll speed
@@ -625,7 +625,11 @@ function showTab(name) {
 document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 $('#refresh-btn').addEventListener('click', loadCatches);
-$('#install-btn').href = CONFIG.EXTENSION_URL;
+if (CONFIG.EXTENSION_URL && CONFIG.EXTENSION_URL !== '#') {
+  $('#install-btn').href = CONFIG.EXTENSION_URL;
+  $('#install-btn').hidden = false;
+}
+$('#howto-btn').addEventListener('click', () => $('#install-steps').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 
 buildChip();
 requestAnimationFrame(raceFrame);
