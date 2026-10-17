@@ -158,6 +158,24 @@ class KnownList:
     def check(self, host: str) -> dict | None:  # {"brand":..,"category":..,"feed":..} or None
 ```
 
+**As built** (`python -m model.stage0 stats|check|bench`, tests in `tests/test_stage0.py`):
+- **DB:** `default_db_path()` = `$LABELS_DB`, else `~/scamouflage-data/labels.db`. Opened read-only
+  (`mode=ro`, `timeout=30`) only while loading; never queried per certificate.
+- **Cleaning:** `features.clean_host` (same as the engine), on load and in `check()`.
+- **Match:** (a) exact host, or (b) the host's registered domain (tldextract, private PSL on,
+  bundled snapshot, never downloaded) is itself listed. An ending not on the PSL uses the last two
+  labels. The PSL is only consulted when some parent of the name is listed (LRU cached).
+- **Guards:** drop listed names that are a public suffix (107 rows), official or under an official
+  site (2), or also in `negatives` (0); rule (b) never fires through a negative's registered domain
+  (1 host). **Gap:** `feeds.py negatives` samples 300k of Tranco's 1M and leaves out every name
+  already on a scam list, so a poisoned big site (e.g. `nflxvideo.net`, listed by phishing_database)
+  is not stopped. Needs an unfiltered top-N Tranco table to guard against.
+- **Refresh column:** `rowid` (not `last_seen`: feeds.py rewrites `last_seen` on every row each
+  pull). Full reload if rows were deleted, the file replaced, or `official.txt` changed.
+- **Measured on the VM** (2026-10-17, 697,829 rows → 544,038 hosts): load 2.8 s, +68.5 MB RSS per
+  process (peak 135 MB); `check()` 326,862 names/s on one core; on 200,000 recorded CT names
+  (114,840 certs), 54 hits (0.027 %), 35 certs (0.031 %).
+
 ## 6. Stage 1 — Name model (owner Vaishnavi) — `model/features.py`, `model/stage1.py`, `model/train_stage1.py`
 
 ### 6.1 Models
