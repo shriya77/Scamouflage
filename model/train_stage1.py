@@ -48,7 +48,7 @@ from model.stage1 import NGRAM_PARAMS, ngram_vectorizer  # noqa: E402
 
 DATA = os.path.join(ROOT, "data")
 MODEL_DIR = os.environ.get("SCAM_MODELS") or os.path.join(DATA, "models")
-TARGET_FALSE_ALARMS_PER_DAY = 50
+TARGET_FALSE_ALARMS_PER_DAY = 300   # BEFORE Stage 3; every HIGH name is verified by Stage 3, which removes old real businesses
 MAX_MAYBE_PER_HOUR = 1000
 T_LOW_FLOOR = 0.30
 T_HIGH_FLOOR = 0.50
@@ -96,7 +96,7 @@ def fpr_at(scores_neg, t):
     return float((scores_neg >= t).mean()) if len(scores_neg) else 0.0
 
 
-def pick_thresholds(s_val, y_val, gated_val, names_per_day, gate_rate):
+def pick_thresholds(s_val, y_val, gated_val, names_per_day, gate_rate, target=TARGET_FALSE_ALARMS_PER_DAY):
     neg = s_val[(y_val == 0) & gated_val]          # brand-gated NORMAL names (the hard ones)
     gated_per_day = names_per_day * gate_rate
     grid = np.round(np.arange(0.30, 0.995, 0.005), 3)
@@ -111,7 +111,7 @@ def pick_thresholds(s_val, y_val, gated_val, names_per_day, gate_rate):
 
     t_high = None
     for t in grid:
-        if t >= T_HIGH_FLOOR and fa_day_careful(t) <= TARGET_FALSE_ALARMS_PER_DAY:
+        if t >= T_HIGH_FLOOR and fa_day_careful(t) <= target:
             t_high = float(t)
             break
     if t_high is None:
@@ -145,6 +145,8 @@ def main():
     ap.add_argument("--gate-rate", type=float, default=None,
                     help="share of live names passing the gate. Default: measured from data/ct_sample.txt")
     ap.add_argument("--val-frac", type=float, default=0.15)
+    ap.add_argument("--target-fa", type=float, default=TARGET_FALSE_ALARMS_PER_DAY,
+                    help="max false alarms/day BEFORE Stage 3 when picking T_high (default %(default)s)")
     ap.add_argument("--snapml", action="store_true", help="also train IBM Snap ML boosting and report its speed")
     args = ap.parse_args()
 
@@ -221,7 +223,27 @@ def main():
     names_per_day = args.names_per_day or 60_000_000
     npd_src = "argument" if args.names_per_day else "PLACEHOLDER 60M — rerun with --names-per-day from Shriya"
     gated_val = np.array([F.brand_gate(hosts[i])[0] for i in val_idx])
-    th = pick_thresholds(s_val, yv, gated_val, names_per_day, gate_rate)
+    th = pick_thresholds(s_val, yv, gated_val, names_per_day, gate_rate, args.target_fa)
+    th["target_false_alarms_per_day"] = args.target_fa
+
+    # trade-off table: what each possible line would give (validation only, never test)
+    neg_g = s_val[(yv == 0) & gated_val]
+    pos_g = s_val[(yv == 1) & gated_val]
+    toll_g = s_val[(yv == 1) & gated_val & np.isin(cats[val_idx], ["toll", "delivery", "gov"])]
+    gpd = names_per_day * gate_rate
+    log(f"trade-off on validation ({len(neg_g):,} brand-word normals, {len(pos_g):,} brand-word scams, "
+        f"{len(toll_g):,} toll/delivery/gov; ~{gpd:,.0f} brand-word names/day live):")
+    log("   line   scams caught   toll/deliv/gov caught   normals over line   est. false alarms/day (before Stage 3)")
+    curve = []
+    for t in (0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.85, 0.90, 0.95, 0.98, th["t_high"]):
+        k = int((neg_g >= t).sum())
+        row = {"t": round(float(t), 3), "recall_gated": float((pos_g >= t).mean()) if len(pos_g) else 0.0,
+               "recall_toll": float((toll_g >= t).mean()) if len(toll_g) else 0.0, "normals_over": k,
+               "fa_day": round(gpd * (k + 1) / (len(neg_g) + 1), 1)}
+        curve.append(row)
+        mark = "  <- T_high" if abs(t - th["t_high"]) < 1e-9 else ""
+        log(f"   {t:5.3f}   {row['recall_gated']:11.1%}   {row['recall_toll']:20.1%}   {k:17,}   {row['fa_day']:>10,.1f}{mark}")
+    th["tradeoff_curve"] = curve
 
     val_scam_gated = (yv == 1) & gated_val
     recall_high = float((s_val[val_scam_gated] >= th["t_high"]).mean()) if val_scam_gated.any() else 0.0
