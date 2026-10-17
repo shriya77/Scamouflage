@@ -6,34 +6,60 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header>
-    <img src="icons/icon32.png" alt="" width="20" height="20">
-    <span class="title">Scamouflage</span>
-    <span id="demo-pill" class="pill" hidden>DEMO MODE</span>
+  <header class="brand">
+    <img class="brand-mark" src="icons/chameleon-white.png" alt="">
+    <span class="brand-name">Scamouflage</span>
+    <span id="demo-pill" class="pill pill-demo" hidden>Demo</span>
+    <span id="live-pill" class="pill pill-live" hidden>Live</span>
   </header>
 
-  <section id="status" class="status status-loading">
-    <div id="status-title" class="status-title">Checking…</div>
-    <div id="status-host" class="status-host"></div>
-    <div id="status-detail" class="status-detail"></div>
-    <ul id="status-reasons" class="status-reasons" hidden></ul>
-  </section>
+  <main>
+    <section id="status" class="status status-loading" aria-live="polite">
+      <div class="status-icon" aria-hidden="true"></div>
+      <div class="status-body">
+        <div id="status-title" class="status-title">Checking…</div>
+        <div id="status-host" class="status-host"></div>
+        <div id="score-meter" class="score-meter" hidden>
+          <div class="score-track"><div id="score-fill" class="score-fill"></div></div>
+          <span id="score-label" class="score-label"></span>
+        </div>
+        <div id="status-detail" class="status-detail"></div>
+        <ul id="status-reasons" class="status-reasons" hidden></ul>
+      </div>
+    </section>
 
-  <dl class="list-info">
-    <dt>Entries in list</dt><dd id="entry-count">–</dd>
-    <dt>Last successful sync</dt><dd id="last-sync">–</dd>
-    <dt>List source</dt><dd id="list-source">–</dd>
-  </dl>
-  <p id="sync-error" class="sync-error" hidden></p>
+    <section class="stats" aria-label="About the list">
+      <div class="stat">
+        <div class="stat-label">Compared against</div>
+        <div class="stat-value" id="entry-count">–</div>
+        <div class="stat-sub" id="entry-count-sub">flagged sites</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">ML model trained on</div>
+        <div class="stat-value" id="model-train">–</div>
+        <div class="stat-sub" id="model-train-sub">labeled domains</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Last sync</div>
+        <div class="stat-value stat-value-sm" id="last-sync">–</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">List source</div>
+        <div class="stat-value stat-value-sm" id="list-source">–</div>
+      </div>
+    </section>
 
-  <div class="buttons">
-    <button id="sync-now" type="button">Sync now</button>
-    <a id="dashboard" href="#">TollTrap dashboard</a>
-  </div>
+    <p id="sync-error" class="sync-error" hidden></p>
+
+    <div class="buttons">
+      <button id="sync-now" class="btn btn-primary" type="button">Sync now</button>
+      <a id="dashboard" class="btn btn-secondary" href="#">Scamouflage dashboard</a>
+    </div>
+  </main>
 
   <footer>
+    <span class="privacy">Checks happen in your browser. The sites you visit are never sent anywhere.</span>
     <a id="options" href="#">Settings</a>
-    <span class="privacy">Checks happen in your browser. Sites you visit are never sent anywhere.</span>
   </footer>
 
   <script src="config.js"></script>

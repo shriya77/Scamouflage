@@ -36,6 +36,13 @@
     ? 'Scamouflage flagged this site as a likely toll scam.'
     : 'Scamouflage flagged this site as a likely toll scam (score ' + M.formatScore(score) + ').';
 
+  if (score !== null && Number.isFinite(score)) {
+    const pct = Math.round(Math.min(1, Math.max(0, score)) * 100);
+    document.getElementById('score-fill').style.width = pct + '%';
+    document.getElementById('score-text').textContent = 'Risk score ' + M.formatScore(score);
+    document.getElementById('score-meter').hidden = false;
+  }
+
   document.getElementById('domain').textContent = host || '(unknown site)';
 
   // If a parent domain matched, say so: "pay.ezpass.com-xk2.win" is flagged

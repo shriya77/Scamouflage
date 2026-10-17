@@ -4,79 +4,99 @@
 html, body {
   margin: 0;
   min-height: 100%;
-  background: #b3261e;
+  background: radial-gradient(ellipse at top, #c62f27 0%, #a51f19 55%, #8c1813 100%) fixed;
   color: #ffffff;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 }
 
 body {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
   min-height: 100vh;
-  padding: 32px 16px;
+  padding: 0 16px 40px;
 }
+
+/* Brand bar */
+.brand {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  opacity: 0.95;
+}
+.brand-mark { height: 26px; width: auto; }
+.brand-name { font-weight: 700; letter-spacing: 3px; text-transform: uppercase; font-size: 14px; }
 
 .card {
   width: 100%;
-  max-width: 720px;
+  max-width: 760px;
+  margin: auto 0;
 }
 
 .icon {
-  width: 96px;
-  height: 96px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
   background: #ffffff;
   color: #b3261e;
-  font-size: 72px;
+  font-size: 64px;
   font-weight: 800;
-  line-height: 96px;
+  line-height: 88px;
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.15);
 }
 
 h1 {
-  font-size: 36px;
-  line-height: 1.2;
-  margin: 0 0 20px;
+  font-size: 38px;
+  line-height: 1.15;
+  margin: 0 0 16px;
+  letter-spacing: -0.3px;
 }
 
-h2 {
-  font-size: 20px;
-  margin: 0 0 8px;
+/* Score bar */
+.score-meter { display: flex; align-items: center; gap: 12px; margin: 0 0 24px; max-width: 420px; }
+.score-track { flex: 1; height: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
+.score-fill { height: 100%; width: 0; background: #ffffff; border-radius: 5px; }
+.score-text { font-weight: 700; font-size: 15px; white-space: nowrap; }
+
+/* Details panel */
+.panel {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+.panel-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  opacity: 0.8;
+  margin: 0 0 6px;
 }
 
-.domain-line {
-  font-size: 18px;
-  margin: 0 0 24px;
-}
-
+.domain-line { font-size: 18px; margin: 0 0 18px; }
 .domain {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: rgba(0, 0, 0, 0.25);
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-size: 20px;
+  font-weight: 600;
   word-break: break-all;
 }
+.matched-note { display: block; margin-top: 6px; font-size: 15px; opacity: 0.9; }
 
-.matched-note {
-  display: block;
-  margin-top: 6px;
-  font-size: 15px;
-  opacity: 0.9;
-}
+.reasons ul { margin: 0 0 16px; padding-left: 22px; font-size: 18px; line-height: 1.55; }
+.observed { font-size: 15px; line-height: 1.5; margin: 0; opacity: 0.9; }
 
-.reasons ul {
-  margin: 0 0 20px;
-  padding-left: 24px;
-  font-size: 18px;
-  line-height: 1.5;
-}
-
-.observed, .advice {
+.advice {
   font-size: 16px;
   line-height: 1.5;
-  margin: 0 0 16px;
+  margin: 0 0 8px;
 }
 
 .actions {
@@ -84,7 +104,7 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 24px;
-  margin: 32px 0 24px;
+  margin: 28px 0 24px;
 }
 
 button { font: inherit; cursor: pointer; }
@@ -93,13 +113,12 @@ button.primary {
   background: #ffffff;
   color: #b3261e;
   border: none;
-  border-radius: 8px;
-  padding: 16px 48px;
+  border-radius: 10px;
+  padding: 16px 56px;
   font-size: 22px;
-  font-weight: 700;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
-
 button.primary:hover { background: #fce8e6; }
 
 button.primary:focus-visible,
@@ -115,13 +134,8 @@ button.secondary {
   padding: 4px;
   font-size: 14px;
   text-decoration: underline;
-  opacity: 0.85;
+  opacity: 0.8;
 }
-
 button.secondary:hover { opacity: 1; }
 
-.fineprint {
-  font-size: 13px;
-  opacity: 0.85;
-  line-height: 1.5;
-}
+.fineprint { font-size: 13px; opacity: 0.8; line-height: 1.5; margin: 0; }

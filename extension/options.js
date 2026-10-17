@@ -98,5 +98,43 @@
     await loadAllowed();
   });
 
+  // ---- Demo links (all served from this computer by demo/index.html) ---------
+  const DEMO_SITES = [
+    ['http://ezpass.com-demo.localhost:5500/', true, 'exact match'],
+    ['http://pay.ezpass.com-demo.localhost:5500/', true, 'parent com-demo.localhost'],
+    ['http://usps.com-demo.localhost:5500/', true, 'parent com-demo.localhost'],
+    ['http://parent-only.localhost:5500/', true, 'exact match'],
+    ['http://sub.parent-only.localhost:5500/', false, 'parent has no match_subdomains'],
+    ['http://localhost:5500/', false, 'not on the list'],
+  ];
+
+  function renderDemoLinks() {
+    const list = $('demo-list');
+    for (const [url, warns, why] of DEMO_SITES) {
+      const li = document.createElement('li');
+      const tag = document.createElement('span');
+      tag.className = 'tag ' + (warns ? 'tag-warn' : 'tag-ok');
+      tag.textContent = warns ? 'Warning' : 'No warning';
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = url;
+      const note = document.createElement('span');
+      note.className = 'demo-why';
+      note.textContent = why;
+      li.append(tag, link, note);
+      list.appendChild(li);
+    }
+  }
+
+  function renderAbout() {
+    const version = chrome.runtime.getManifest().version;
+    const keys = Object.keys(CONFIG.LIVE_KEYS).join(', ');
+    $('about-meta').textContent = 'Version ' + version + ' · trusted list key: ' + keys;
+  }
+
+  renderDemoLinks();
+  renderAbout();
   load();
 })();

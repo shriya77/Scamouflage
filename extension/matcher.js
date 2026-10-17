@@ -237,7 +237,25 @@
         threshold: typeof payload.threshold === 'number' ? payload.threshold : null,
         entries,
         allowlist,
+        // Optional extras for the popup. Older lists don't have them.
+        flagged_hostnames: countOrNull(payload.flagged_hostnames),
+        model: validateModel(payload.model),
       },
+    };
+  }
+
+  function countOrNull(n) {
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  }
+
+  /** { version, trained_at, n_train, n_val } with each field checked, or null. */
+  function validateModel(model) {
+    if (!model || typeof model !== 'object') return null;
+    return {
+      version: typeof model.version === 'string' ? model.version : null,
+      trained_at: typeof model.trained_at === 'string' ? model.trained_at : null,
+      n_train: countOrNull(model.n_train),
+      n_val: countOrNull(model.n_val),
     };
   }
 

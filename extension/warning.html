@@ -7,22 +7,35 @@
   <link rel="stylesheet" href="warning.css">
 </head>
 <body>
+  <header class="brand">
+    <img class="brand-mark" src="icons/chameleon-white.png" alt="">
+    <span class="brand-name">Scamouflage</span>
+  </header>
+
   <main class="card" role="alert" aria-live="assertive">
     <div class="icon" aria-hidden="true">!</div>
 
     <h1 id="headline">Scamouflage flagged this site as a likely toll scam.</h1>
 
-    <p class="domain-line">
-      Site: <span id="domain" class="domain"></span>
-      <span id="matched-note" class="matched-note" hidden></span>
-    </p>
+    <div id="score-meter" class="score-meter" hidden>
+      <div class="score-track"><div id="score-fill" class="score-fill"></div></div>
+      <span id="score-text" class="score-text"></span>
+    </div>
 
-    <section class="reasons">
-      <h2>Reasons:</h2>
-      <ul id="reasons"></ul>
-    </section>
+    <div class="panel">
+      <p class="domain-line">
+        <span class="panel-label">Site</span>
+        <span id="domain" class="domain"></span>
+        <span id="matched-note" class="matched-note" hidden></span>
+      </p>
 
-    <p class="observed" id="observed"></p>
+      <section class="reasons">
+        <h2 class="panel-label">Reasons:</h2>
+        <ul id="reasons"></ul>
+      </section>
+
+      <p class="observed" id="observed"></p>
+    </div>
 
     <p class="advice">
       Toll agencies, USPS, the DMV, and the IRS do not ask you to pay through a

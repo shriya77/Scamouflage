@@ -17,7 +17,7 @@ import json
 import os
 import time
 
-from backend.blocklist_route import (iso_utc, make_entry, official_domains,
+from backend.blocklist_route import (iso_utc, make_entry, model_info, official_domains,
                                      sha256_hex, sign_payload)
 from backend.make_keys import load_or_create, public_key_b64
 
@@ -48,6 +48,8 @@ def build_demo_payload(now: float) -> dict:
         "threshold": 0.85,
         "entries": sorted(entries, key=lambda e: e["h"]),
         "allowlist": sorted({sha256_hex(d) for d in official_domains()}),
+        "flagged_hostnames": 2,  # ezpass.com-demo.localhost, parent-only.localhost
+        "model": model_info(),   # real training stats if run where the model was trained
     }
 
 
