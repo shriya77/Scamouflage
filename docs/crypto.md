@@ -13,7 +13,8 @@ For every certificate in the Certificate Transparency stream, `verify/verify.py`
 ## 2. We sign every alert and the blocklist (anyone can check, nobody can edit)
 
 - **Alerts:** `alerts/sign.py` signs every alert with **Ed25519** (`keys/alert_ed25519.pem`, key id `ed25519:54ac72e60e2c97a6`). It signs the canonical JSON of `cert_id, domain, domains, score, reasons, seen_at, issuer, log, verify, crtsh_url`. Anyone can check an alert with the public key `data/alert_pubkey.pem`. Changing any field (for example the score) makes it INVALID.
-- **Blocklist for the browser extension:** `GET /api/blocklist` (`backend/blocklist_route.py`) publishes SHA-256 hashes of flagged hostnames (score ≥ 0.85), never plain domains. It is signed with a separate Ed25519 key (`tolltrap-dev-1`) over the exact bytes of the payload string. The extension verifies the signature *before* it parses the list, and only trusts public keys built into `extension/config.js`.
+- **Blocklist for the browser extension:** `GET /api/blocklist` (`backend/blocklist_route.py`) publishes SHA-256 hashes of flagged hostnames (score ≥ 0.85), never plain domains. It is signed with a separate Ed25519 key (`keys/blocklist_ed25519.pem`, `key_id` `scamouflage-vm-1`, generated on the VM so the private key never leaves it) over the exact bytes of the payload string. The extension verifies the signature *before* it parses the list, and only trusts public keys built into `extension/config.js` `LIVE_KEYS`. `GET /api/pubkey` serves the same public key (PEM and base64). To regenerate it, see CONTRACTS.md §5 (Keys); the extension must then be reloaded in Chrome.
+- **Blocklist on the VM (2026-10-17):** `GET /api/blocklist` returned 200 with a list signed by `scamouflage-vm-1` (0 entries: no live alert was ≥ 0.85 yet). It checked VALID with both the Python check below and the extension's own `verifyEnvelope` (tweetnacl), and INVALID after one byte of the payload was changed.
 - **Measured on the VM:** a replay of the recording with every cert forced to alert produced 161,241 signed alerts. `alerts.check` printed VALID for the 20 newest and for #1000. With `--tamper` (score changed in memory), #1000 printed INVALID. The bundled signed demo blocklist checks VALID, and changing one score in its payload makes it INVALID.
 
 ## 3. Proof that CPACF does the work
@@ -53,7 +54,7 @@ For every certificate in the Certificate Transparency stream, `verify/verify.py`
 Alerts need a DB with rows. To get one without the model, replay with every cert alerting:
 `python -m replay.replay data/recordings/ct-20261017-152933.jsonl.gz --speed 0 --port 8093`, then `python -m ingest.consumer --url ws://127.0.0.1:8093/ --threshold 0 --workers 3 --db data/test.db --stats data/test_stats.json --exit-on-close`. Then run `alerts.check --db data/test.db`.
 
-Blocklist signature, using only public keys (works on `extension/demo_blocklist.json` or a saved `/api/blocklist` response):
+Blocklist signature, using only public keys (works on `extension/demo_blocklist.json` or a saved response from `curl -s 127.0.0.1:8000/api/blocklist > list.json`):
 
 ```bash
 .venv/bin/python - extension/demo_blocklist.json <<'EOF'

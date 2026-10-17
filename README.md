@@ -69,12 +69,14 @@ Swap your real function into your file (e.g. `model/model.py`) and run the consu
 
 The `extension/` folder is a Chrome extension that warns users when they open a flagged site.
 
-- **The API publishes a list.** `GET /api/blocklist` on :8000 returns every flagged domain as a SHA-256 hash with its score and reasons, signed with its own Ed25519 key (`tolltrap-dev-1`, see CONTRACTS.md §5).
+- **The API publishes a list.** `GET /api/blocklist` on :8000 returns every flagged domain as a SHA-256 hash with its score and reasons, signed with its own Ed25519 key (`scamouflage-vm-1`, private key only on the VM in `keys/blocklist_ed25519.pem`; see CONTRACTS.md §5). `GET /api/pubkey` returns the matching public key.
 - **The extension keeps a copy.** Every 30 minutes it downloads the list, verifies the signature with the bundled public key, and saves it in the browser. Invalid or older lists are rejected.
 - **Checks happen in the browser.** For each site opened, it hashes the domain and its parents (e.g. `ezpass.com-xk2.win` and `com-xk2.win`) and looks them up locally. The server never sees what anyone browses.
 - **On a match**, a full-page warning shows the score and reasons, with *Go back* and *Continue anyway*.
 
-To run it: open the SSH tunnel (`ssh -L 8000:localhost:8000 user@vm`), go to `chrome://extensions`, turn on Developer mode, and click *Load unpacked* on `extension/`. Demo mode flags a harmless local test page, so the demo never opens a real scam site.
+Serve the list on the VM (localhost only): `.venv/bin/python -m backend.blocklist_route --host 127.0.0.1 --port 8000`, or mount `setup_blocklist_route(app)` in the main API.
+
+To run it: open the SSH tunnel (`ssh -L 8000:localhost:8000 user@vm`), go to `chrome://extensions`, turn on Developer mode, and click *Load unpacked* on `extension/`. Demo mode flags a harmless local test page, so the demo never opens a real scam site. After the blocklist key changes (`extension/config.js` `LIVE_KEYS`), click *reload* on the extension in `chrome://extensions`, or it rejects the new list.
 
 ## Safety
 

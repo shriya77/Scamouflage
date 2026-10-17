@@ -84,21 +84,21 @@ Write JSON **atomically** (write `x.tmp` then `os.replace`) so the API never rea
 
 ## 5. API (Role F, port 8000, localhost only. Reach it through an SSH tunnel.)
 
-`GET /api/stats` · `GET /api/alerts?limit=&since=` · `GET /api/alerts/{id}` · `GET /api/campaigns` · `GET /api/results` · `GET /api/hardware` · `GET /api/cpacf/live` · `GET /api/blocklist` · `GET /api/pubkey` (TODO) · `WS /ws/live` (push new alerts plus stats every second)
+`GET /api/stats` · `GET /api/alerts?limit=&since=` · `GET /api/alerts/{id}` · `GET /api/campaigns` · `GET /api/results` · `GET /api/hardware` · `GET /api/cpacf/live` · `GET /api/blocklist` · `GET /api/pubkey` · `WS /ws/live` (push new alerts plus stats every second)
 
 Crypto endpoints (data from Role D, served by F):
 - `GET /api/hardware`: `data/hardware.json` as-is.
 - `GET /api/cpacf/live`: `data/cpacf_live.json` as-is (format in section 4). Suggestion: `WS /ws/live` also pushes it (e.g. `{"type": "cpacf", ...}`) every 2 s next to stats, so the dashboard can show live KDSA/KIMD rates.
-- `GET /api/pubkey`: **TODO for Role F, not implemented yet.** Suggested: return `data/alert_pubkey.pem` as `text/plain` so anyone can check alert signatures. Today the blocklist public key is only in `extension/config.js`.
+- `GET /api/pubkey`: implemented in `backend/blocklist_route.py` (mounted by `setup_blocklist_route`). Returns the **blocklist** public key as JSON: `{"key_id": "scamouflage-vm-1", "alg": "Ed25519", "public_key_pem": "-----BEGIN PUBLIC KEY-----...", "public_key_b64": "<raw 32 bytes, same as config.js>", "signs": "/api/blocklist"}`. It is derived from the signing key, so it always matches the signatures. `503` if the key is missing. The **alert** public key is still only the file `data/alert_pubkey.pem` (TODO Role F: serve it too, e.g. `GET /api/alerts/pubkey`).
 
 ### `GET /api/blocklist` (owned by Role F / extension, PR #3, `backend/blocklist_route.py`)
 
-Mount it with `from backend.blocklist_route import setup_blocklist_route; setup_blocklist_route(app)` (aiohttp). Needs `TOLLTRAP_SIGNING_KEY=keys/blocklist_ed25519.pem`; without the key it answers `503`. The signed body is rebuilt at most every 60 s (`TOLLTRAP_BLOCKLIST_CACHE_S`) and sent with `Cache-Control: no-store`.
+Mount it with `from backend.blocklist_route import setup_blocklist_route; setup_blocklist_route(app)` (aiohttp; adds `/api/blocklist` and `/api/pubkey`). Or run it on its own: `.venv/bin/python -m backend.blocklist_route --host 127.0.0.1 --port 8000`. Needs `tldextract` (in `requirements.txt`). It signs with `keys/blocklist_ed25519.pem` in the repo (override with `TOLLTRAP_SIGNING_KEY=<path>`) and sends `key_id` `scamouflage-vm-1` (override with `TOLLTRAP_KEY_ID`); without the key it answers `503`. The signed body is rebuilt at most every 60 s (`TOLLTRAP_BLOCKLIST_CACHE_S`) and sent with `Cache-Control: no-store`.
 
 Response (the "envelope"):
 
 ```json
-{"payload": "<JSON string>", "signature": "<base64 Ed25519, 64 bytes>", "key_id": "tolltrap-dev-1"}
+{"payload": "<JSON string>", "signature": "<base64 Ed25519, 64 bytes>", "key_id": "scamouflage-vm-1"}
 ```
 
 - **What is signed:** the exact UTF-8 bytes of the `payload` **string** (not a re-serialized object). The extension checks the signature with tweetnacl *before* parsing, and only trusts key ids listed in `extension/config.js` `LIVE_KEYS`.
@@ -115,9 +115,13 @@ Response (the "envelope"):
 | Private key (on the VM, `keys/`, git-ignored, never committed) | Signs | Public key / id |
 |---|---|---|
 | `keys/alert_ed25519.pem` (`alerts.keygen`) | every alert (`alerts/sign.py`) | `data/alert_pubkey.pem`, `key_id` `ed25519:<sha256(pub)[:16]>` |
-| `keys/blocklist_ed25519.pem` (`backend.make_keys`) | the extension blocklist (`backend/blocklist_route.py`) | base64 in `extension/config.js` `LIVE_KEYS`, `key_id` `tolltrap-dev-1` |
+| `keys/blocklist_ed25519.pem` (`backend.make_keys`, generated on the VM 2026-10-17) | the extension blocklist (`backend/blocklist_route.py`) | base64 `eugJKnIzUa+nVMw0SCTIGIpPGUvlNfWGYkYutLzV3gM=` in `extension/config.js` `LIVE_KEYS` and `GET /api/pubkey`, `key_id` `scamouflage-vm-1` |
 
 (`keys/demo_ed25519.pem`, `tolltrap-demo-1`, signs only the bundled `extension/demo_blocklist.json`.)
+
+The old blocklist key `tolltrap-dev-1` (private key only on one laptop) is retired and no longer trusted by the extension.
+
+**Regenerating the blocklist key** (only if it is lost or leaked): on the VM run `.venv/bin/python -m backend.make_keys --force --key-id scamouflage-vm-2`. It prints only the public key. Put that line in `extension/config.js` `LIVE_KEYS` (replace the old entry), start the API with `TOLLTRAP_KEY_ID=scamouflage-vm-2` (or change the default in `blocklist_route.py`), update this table, commit, and **reload the extension in Chrome** (`chrome://extensions` → reload). An extension that wasn't reloaded rejects the new list with `unknown key_id` and keeps using its last good list. Never copy the private key off the VM.
 
 TODO: merge to one signing key after the demo. Not now: it would break the key built into the extension.
 

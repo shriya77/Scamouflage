@@ -1,3 +1,4 @@
 websockets>=13.0
 cryptography>=42
 aiohttp>=3.9
+tldextract>=5
