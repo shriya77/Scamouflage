@@ -433,8 +433,8 @@ def build_signed_body() -> bytes:
     payload = build_payload(rows, official_domains(), read_domain_file(NO_WILDCARD_FILE),
                             model=model_info(), top_sites=read_top_sites())
     envelope = sign_payload(payload, key, KEY_ID)
-    log.info("blocklist rebuilt: %d entries from %d alert rows (source=%s, %d tranco_top sites)",
-             len(payload["entries"]), len(rows), LIST_SOURCE, len(top_sites))
+    log.info("blocklist rebuilt: %d entries from %d alert rows (source=%s)",
+             len(payload["entries"]), len(rows), LIST_SOURCE)
     return json.dumps(envelope).encode("utf-8")
 
 
