@@ -170,6 +170,9 @@ def run_evidence_study(scam_sample: list[dict], normal_sample: list[str]) -> dic
             "n_total": len(scam_results),
             "n_ok": len(ok),
             "n_failed_by_error": dict(errors),
+            "failed_tlds_by_error": {e: dict(Counter(r["domain"].rsplit(".", 1)[-1] for r in scam_results
+                                                     if r["rdap"]["error"] == e).most_common(5))
+                                     for e in errors},
             "age_now_median_days": round(statistics.median(ages_now), 2) if ages_now else None,
             "age_at_first_seen_n": len(ages_first),
             "age_at_first_seen_median_days": round(statistics.median(ages_first), 2) if ages_first else None,
@@ -241,7 +244,11 @@ def write_reports(study: dict, sample_meta: dict, out_dir: str = REPORTS_DIR) ->
         f"Unit 42 registrars (Dominet, NameSilo, Gname), against {u42_ref}% in Unit 42's Smishing "
         "Triad data. Our sample covers all toll/delivery/gov phishing in the feeds, not only that "
         "one group, so it is far more spread out.",
-        f"- **Lookups that failed:** {fails} (of {s['n_total']}). They are counted, not dropped.",
+        f"- **Lookups that failed:** {fails} (of {s['n_total']}). They are counted, not dropped. "
+        "Top TLDs per error: " + "; ".join(f"{e}: " + ", ".join(f".{t} {c}" for t, c in tl.items())
+                                          for e, tl in s["failed_tlds_by_error"].items())
+        + ". `rate_limited` means the TLD's own registry refused (rdap.org redirects to it); "
+        "`not_found` means the registry has no record (typically deleted or suspended).",
         "",
         "Note: `first_seen` is when OUR feeds loop first saw the name on a list. The loop started on "
         "2026-10-17, so for names that were already listed before then this is an upper bound on "
