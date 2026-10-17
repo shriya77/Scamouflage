@@ -16,6 +16,7 @@ import concurrent.futures as cf
 import datetime as dt
 import json
 import logging
+import re
 import time
 
 from model import features as F
@@ -102,8 +103,10 @@ def build_reasons(d, ctx):
         name = BRAND_NAMES.get(brand)
         if brand not in host:
             out.append(f'Name looks like a misspelling of "{brand}" ({d.get("category")})')
-        elif name:
+        elif name and re.search(r"(?:^|[^a-z0-9])" + re.escape(brand), host):
             out.append(f"Pretends to be {name}")
+        elif name:
+            out.append(f'Contains "{brand}" ({name}, {d.get("category")}) inside another word')
         else:
             out.append(f'Uses the {d.get("category")} lure word "{brand}"')
     elif d.get("category") == "other":

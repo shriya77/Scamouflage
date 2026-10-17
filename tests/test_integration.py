@@ -285,6 +285,16 @@ def test_official_site_never_saved():
     assert rows(con) == []
 
 
+def test_reasons_only_claim_a_brand_at_the_start_of_a_word():
+    from ingest.alerting import build_reasons
+    base = {"stage": 2, "s1": 0.7, "s2_boost": 0.0, "score": 0.7, "category": "toll", "verified": False}
+    assert build_reasons(dict(base, host="epass-toll.win", brand="epass"), {})[0] == "Pretends to be E-PASS"
+    assert build_reasons(dict(base, host="pay.ezpass.com-xk2.win", brand="ezpass"), {})[0] == "Pretends to be E-ZPass"
+    assert build_reasons(dict(base, host="coffeepass.world", brand="epass"), {})[0] == \
+        'Contains "epass" (E-PASS, toll) inside another word'
+    assert build_reasons(dict(base, host="tollroad-fee.win", brand="toll"), {})[0] == 'Uses the toll lure word "toll"'
+
+
 # ------------------------------------------------------------------ signatures, schema
 def test_legacy_alert_still_verifies():
     old = {"cert_id": "ab" * 32, "domain": "x.win", "domains": ["x.win"], "score": 0.9, "reasons": [],
