@@ -1,4 +1,7 @@
+# data/ is a symlink to ~/tolltrap/data on the VM. "data/" only matches a real
+# directory, "/data" also matches the symlink, so keep both.
 data/
+/data
 vendor/
 bin/
 *.db
