@@ -207,7 +207,6 @@ async function doSync(trigger) {
     });
     status.lastSuccessAt = new Date().toISOString();
     status.lastError = null;
-    status.entryCount = result.payload.entries.length;
     await chrome.storage.local.set({ [K_SYNC_STATUS]: status });
     await reloadList();
     await chrome.alarms.clear(RETRY_ALARM);
