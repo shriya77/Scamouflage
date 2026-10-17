@@ -388,6 +388,15 @@ def test_stage0_refresh_is_staggered_across_workers():
     assert all(0 <= x < 900 for x in phases)
     assert len({round(x) for x in phases}) == 3          # three workers, three different moments
 
+
+def test_signing_check_reports_a_missing_key():
+    def broken(alert):
+        raise FileNotFoundError("no signing key at /nowhere/alert_ed25519.pem")
+    r = C.signing_check(broken)
+    assert r["ok"] is False and "FileNotFoundError" in r["error"]
+    r = C.signing_check(lambda a: dict(a, sig="c2ln", key_id="ed25519:test"))
+    assert r == {"ok": True, "key_id": "ed25519:test", "error": None}
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

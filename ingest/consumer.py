@@ -346,6 +346,17 @@ def default_labels_db():
     return local if os.path.exists(local) else os.path.expanduser("~/scamouflage-data/labels.db")
 
 
+def signing_check(sign) -> dict:
+    """Sign a throwaway alert once at startup. AlertWriter never lets a signing error stop the
+    stream (it saves the alert with sig "" and key_id "error:..."), so without this check a
+    missing key would go unnoticed until someone ran alerts.check."""
+    try:
+        out = sign({"cert_id": "startup-check", "domain": "startup-check.invalid"})
+        return {"ok": bool(out.get("sig")), "key_id": out.get("key_id"), "error": None}
+    except Exception as e:
+        return {"ok": False, "key_id": None, "error": f"{type(e).__name__}: {e}"}
+
+
 class EnginePath:
     """Main-process state of the engine path: Stage 3 queue, alert writer, dashboard counters."""
 
@@ -362,6 +373,7 @@ class EnginePath:
         self.finalizer = Engine(thresholds=load_thresholds(self.cfg["model_dir"]))
         self.verify = load_stage3()
         self.writer = AlertWriter(con, sign)
+        self.signing = signing_check(sign)
         self.s3 = Stage3Queue(self.finalizer, self.verify, self.writer.on_final,
                               concurrency=args.stage3_concurrency, timeout=args.stage3_timeout,
                               maxsize=args.stage3_queue)
@@ -380,6 +392,11 @@ class EnginePath:
               f"queue cap {args.stage3_queue}", flush=True)
         print(f"[engine] dedupe: {self.writer.loaded_hosts} hosts alerted in the last 24 h loaded from "
               f"{args.db}", flush=True)
+        if self.signing["ok"]:
+            print(f"[engine] signing: ok (key_id {self.signing['key_id']})", flush=True)
+        else:
+            print(f"[engine] WARNING: alerts will be saved UNSIGNED ({self.signing['error']}). "
+                  "Fix the key (python -m alerts.keygen / SCAM_SIGNING_KEY) and restart.", flush=True)
 
     def absorb(self, out):
         info = out["info"]
@@ -415,7 +432,7 @@ class EnginePath:
         est = self.uniq.estimate()
         last = wr.last
         return {
-            "engine": self.status(),
+            "engine": dict(self.status(), signing=self.signing),
             "alerts_total": wr.c["alerts"],
             "last_alert": {k: last[k] for k in ("domain", "score", "seen_at", "crtsh_url")} if last else None,
             "names_checked": c["names"],
