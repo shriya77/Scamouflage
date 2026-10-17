@@ -19,10 +19,18 @@ Returns:
         "error": str | None          # None | "timeout" | "not_found" | "rate_limited" | "other"
     }
 
+Registered domain: tldextract's BUNDLED Public Suffix List with private domains on (same as
+Stage 0/2, no download). A name on shared hosting (x.github.io, x.pages.dev, x.weebly.com is
+NOT private) has no registry record of its own: verify() returns error "shared_hosting" without
+any request, so the engine falls back to "lookup failed" (HIGH -> scam, MAYBE -> safe).
+
 Caching & Rate Limiting:
-    - 24-hour cache in SQLite (data/rdap_cache.db) + memory LRU
-    - Global rate limit: max 2 requests/second to rdap.org
-    - Exponential backoff & single retry on HTTP 429
+    - Cache in SQLite (data/rdap_cache.db, or $SCAM_RDAP_CACHE) + memory LRU. Only real answers
+      are cached: found for 24 h, not_found for 6 h. Timeouts, 429s and other errors are NEVER
+      cached, so a blip does not hide a domain for a day. age_days is recomputed from
+      registered_at on every cache hit, so it never goes stale.
+    - Rate limit: max 2 requests/second to rdap.org (per process; Stage 3 runs in one worker)
+    - On HTTP 429: wait (Retry-After, capped at 5 s, else 2 s) and retry once
 """
 import argparse
 import collections
@@ -43,16 +51,26 @@ log = logging.getLogger("scamouflage.stage3")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-# Try importing registered_domain from features, fallback to basic logic
+# Registered domain from the BUNDLED PSL with private domains on (Stage 0's extractor: never
+# downloads). features.registered_domain uses a tldextract that may fetch the live PSL.
 try:
-    from .features import registered_domain as _extract_domain
-except ImportError:
-    try:
-        from features import registered_domain as _extract_domain
-    except ImportError:
-        def _extract_domain(h: str) -> str:
-            parts = str(h or "").strip().lower().rstrip(".").split(".")
-            return ".".join(parts[-2:]) if len(parts) >= 2 else (parts[0] if parts else "")
+    from .stage0 import _EXTRACT as _PSL
+except ImportError:  # pragma: no cover - run outside the package
+    import tldextract
+    _PSL = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None,
+                                 include_psl_private_domains=True)
+
+
+def _extract_domain(host: str) -> tuple[str, bool]:
+    """(registered domain, on shared hosting?). "" if the name is itself a public suffix.
+    pay.ezpass.com-xk2.win -> ("com-xk2.win", False); evil.github.io -> ("evil.github.io", True)."""
+    e = _PSL(host)
+    if not e.suffix:  # ending not on the PSL: last two labels
+        parts = host.split(".")
+        return (".".join(parts[-2:]) if len(parts) >= 2 else ""), False
+    if not e.domain:
+        return "", False
+    return f"{e.domain}.{e.suffix}", bool(getattr(e, "is_private", False))
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +133,10 @@ _RATE_LIMITER = RateLimiter(min_interval=0.5)
 # ---------------------------------------------------------------------------
 # Cache: In-memory LRU + SQLite (24 hours TTL)
 # ---------------------------------------------------------------------------
-CACHE_TTL_SECONDS = 86400  # 24 hours
-DEFAULT_CACHE_DB = os.path.join(ROOT, "data", "rdap_cache.db")
+CACHE_TTL_SECONDS = 86400            # found: 24 hours
+NOT_FOUND_TTL_SECONDS = 6 * 3600     # not_found: 6 hours (a just-registered domain can lag in RDAP)
+CACHED_ERRORS = {None, "not_found"}  # everything else (timeout, rate_limited, other) is retried
+DEFAULT_CACHE_DB = os.environ.get("SCAM_RDAP_CACHE") or os.path.join(ROOT, "data", "rdap_cache.db")
 _MEM_CACHE: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 _MEM_CACHE_MAX = 2000
 _CACHE_LOCK = threading.Lock()
@@ -148,13 +168,42 @@ def _init_cache_db(db_path: str = DEFAULT_CACHE_DB) -> sqlite3.Connection | None
 
 
 _DB_CONN = None
+_DB_PATH = DEFAULT_CACHE_DB
+
+
+def set_cache_path(path: str) -> None:
+    """Use another cache file (tests use a temporary one) and forget everything cached so far."""
+    global _DB_CONN, _DB_PATH
+    with _CACHE_LOCK:
+        if _DB_CONN is not None:
+            try:
+                _DB_CONN.close()
+            except Exception:
+                pass
+        _DB_CONN, _DB_PATH = None, path
+        _MEM_CACHE.clear()
 
 
 def _get_db():
     global _DB_CONN
     if _DB_CONN is None:
-        _DB_CONN = _init_cache_db()
+        _DB_CONN = _init_cache_db(_DB_PATH)
     return _DB_CONN
+
+
+def _ttl(entry: dict) -> float:
+    return CACHE_TTL_SECONDS if entry.get("ok") else NOT_FOUND_TTL_SECONDS
+
+
+def _fresh_age(entry: dict) -> dict:
+    """Recompute age_days from registered_at, so a cached answer never goes stale."""
+    out = dict(entry)
+    out.pop("_cached_at", None)
+    reg = _parse_iso_datetime(out.get("registered_at"))
+    if out.get("ok") and reg is not None:
+        out["age_days"] = round(max(0.0, (dt.datetime.now(dt.timezone.utc) - reg).total_seconds()
+                                    / 86400.0), 4)
+    return out
 
 
 def _cache_get(domain: str) -> dict | None:
@@ -162,11 +211,9 @@ def _cache_get(domain: str) -> dict | None:
     with _CACHE_LOCK:
         if domain in _MEM_CACHE:
             entry = _MEM_CACHE[domain]
-            if now - entry.get("_cached_at", 0) < CACHE_TTL_SECONDS:
+            if now - entry.get("_cached_at", 0) < _ttl(entry):
                 _MEM_CACHE.move_to_end(domain)
-                res = dict(entry)
-                res.pop("_cached_at", None)
-                return res
+                return _fresh_age(entry)
             else:
                 del _MEM_CACHE[domain]
 
@@ -181,7 +228,7 @@ def _cache_get(domain: str) -> dict | None:
             ).fetchone()
         if row:
             ok, age_days, registered_at, registrar, risky_reg, error, cached_at = row
-            if now - cached_at < CACHE_TTL_SECONDS:
+            if error in CACHED_ERRORS and now - cached_at < _ttl({"ok": bool(ok)}):
                 entry = {
                     "ok": bool(ok),
                     "domain": domain,
@@ -195,13 +242,15 @@ def _cache_get(domain: str) -> dict | None:
                     _MEM_CACHE[domain] = dict(entry, _cached_at=cached_at)
                     if len(_MEM_CACHE) > _MEM_CACHE_MAX:
                         _MEM_CACHE.popitem(last=False)
-                return entry
+                return _fresh_age(entry)
     except Exception as e:
         log.warning("cache read error for %s: %s", domain, e)
     return None
 
 
 def _cache_put(res: dict) -> None:
+    if res.get("error") not in CACHED_ERRORS:  # never cache a timeout / 429 / server error
+        return
     now = time.time()
     domain = res["domain"]
     with _CACHE_LOCK:
@@ -308,9 +357,9 @@ def _extract_registrar(entities: list | None) -> str | None:
                         fn = str(item[3]).strip()
                         if fn:
                             return fn
-            # Alternative entity fields
+            # Alternative entity fields (a bare numeric handle is an IANA id, not a name)
             name = ent.get("name") or ent.get("handle")
-            if name:
+            if name and not str(name).strip().isdigit():
                 return str(name).strip()
 
         # Search nested entities recursively
@@ -321,16 +370,43 @@ def _extract_registrar(entities: list | None) -> str | None:
     return None
 
 
+def _retry_after(resp) -> float:
+    """Seconds to wait after a 429: the Retry-After header (capped at 5 s), else 2 s."""
+    try:
+        return min(5.0, max(0.5, float(resp.headers.get("Retry-After"))))
+    except Exception:
+        return 2.0
+
+
 # ---------------------------------------------------------------------------
 # Main Public Interface
 # ---------------------------------------------------------------------------
+def _empty(domain: str = "", error: str | None = None) -> dict:
+    return {"ok": False, "domain": domain, "age_days": None, "registered_at": None,
+            "registrar": None, "risky_registrar": False, "error": error}
+
+
 def verify(host: str, timeout: float = 5.0) -> dict:
     """
     Look up domain registration age and registrar via RDAP (rdap.org).
     Never raises an exception. Follows MODEL_SPEC §8 and §13.
     """
-    clean_h = str(host or "").strip().lower().rstrip(".")
-    reg_domain = _extract_domain(clean_h) if clean_h else ""
+    try:
+        return _verify(host, timeout)
+    except Exception as e:  # never let Stage 3 stop the stream
+        log.warning("verify(%r) failed: %s", host, e)
+        return _empty(error="other")
+
+
+def _verify(host: str, timeout: float) -> dict:
+    clean_h = str(host or "").strip().lower().rstrip(".") if isinstance(host, str) else ""
+    while clean_h.startswith("*."):
+        clean_h = clean_h[2:]
+    reg_domain, shared = _extract_domain(clean_h) if clean_h else ("", False)
+    if shared:
+        # e.g. evil.github.io: the registry only knows github.io (years old), which says nothing
+        # about this tenant. Don't spend the 2/s budget; the engine treats it as lookup failed.
+        return _empty(reg_domain, "shared_hosting")
 
     result = {
         "ok": False,
@@ -394,7 +470,7 @@ def verify(host: str, timeout: float = 5.0) -> dict:
                 break
             elif resp.status_code == 429:
                 if attempt == 0:
-                    time.sleep(1.0)
+                    time.sleep(_retry_after(resp))
                     continue
                 result["error"] = "rate_limited"
                 break

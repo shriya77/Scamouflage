@@ -5,12 +5,23 @@ Evidence statistics for the presentation slide deck (MODEL_SPEC §13 step 11).
 Evaluates domain age and registrar distribution over brand-tagged scam domains
 from labels.db (metadata only via RDAP, never contacts the sites).
 
+    python -m model.stage3_stats --db ~/tolltrap/data/labels.db --limit 150 --normals 50
+
 Emits:
     reports/stage3_evidence.json
     reports/stage3_evidence.md
+
+Samples (real data only, MODEL_SPEC §2 rule 1; nothing is made up if the DB is missing):
+  - scams:   brand-tagged toll / delivery / gov rows of the `labels` table (outside feeds), one
+             entry per REGISTERED domain (bundled PSL, private domains on). Names on shared
+             hosting (x.github.io, x.pages.dev) are counted and left out: RDAP would describe
+             the platform, not the scam.
+  - normals: brand-word sites from the `negatives` table (Tranco) plus labels/official.txt.
+Every number states its N. Lookups that fail are counted by error, never dropped silently.
 """
 import argparse
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -22,7 +33,8 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from model.stage3 import verify, is_risky_registrar
+from model import features as F  # noqa: E402
+from model.stage3 import _extract_domain, _parse_iso_datetime, verify  # noqa: E402
 
 log = logging.getLogger("scamouflage.stage3_stats")
 
@@ -38,238 +50,254 @@ UNIT42_BENCHMARK = {
     "Others": 12.15,
 }
 
-NORMAL_DOMAINS_SAMPLE = [
-    "ntta.org", "usps.com", "google.com", "ezpassva.com", "massdot.state.ma.us",
-    "turnpike.state.fl.us", "dmv.ca.gov", "ny.gov", "ups.com", "fedex.com"
-]
-
 
 def find_db_path(given: str | None) -> str:
-    candidates = [
-        given,
-        os.path.expanduser("~/tolltrap/data/labels.db"),
-        os.path.join(ROOT, "data", "labels.db"),
-        os.path.join(ROOT, "data", "scamouflage.db"),
-    ]
-    for c in candidates:
-        if c and os.path.exists(c):
-            return c
-    return given or os.path.join(ROOT, "data", "scamouflage.db")
+    for c in (given, os.environ.get("LABELS_DB"), os.path.expanduser("~/tolltrap/data/labels.db"),
+              os.path.join(ROOT, "data", "labels.db")):
+        if c and os.path.exists(os.path.expanduser(c)):
+            return os.path.expanduser(c)
+    sys.exit("error: no labels.db found (pass --db or set LABELS_DB). No data is made up.")
 
 
-def collect_scam_domains(db_path: str, limit: int = 150) -> list[dict]:
-    if not os.path.exists(db_path):
-        return []
+def _stable(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def _ro(db_path: str) -> sqlite3.Connection:
+    return sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True, timeout=30)
+
+
+def collect_scam_domains(db_path: str, limit: int = 150) -> tuple[list[dict], dict]:
+    """One entry per registered domain: earliest first_seen, its brand and category."""
+    conn = _ro(db_path)
+    rows = conn.execute("SELECT host, brand, category, first_seen, feed FROM labels "
+                        "WHERE brand IS NOT NULL AND category IN ('toll','delivery','gov')").fetchall()
+    conn.close()
+    by_rd, shared, junk = {}, set(), 0
+    for host, brand, cat, first_seen, feed in rows:
+        h = F.clean_host(host)
+        if not h:
+            junk += 1
+            continue
+        rd, is_shared = _extract_domain(h)
+        if not rd:
+            junk += 1
+            continue
+        if is_shared:
+            shared.add(rd)
+            continue
+        cur = by_rd.get(rd)
+        if cur is None or (first_seen or "") < (cur["first_seen"] or ""):
+            by_rd[rd] = {"domain": rd, "brand": brand, "category": cat,
+                         "first_seen": first_seen, "feed": feed}
+    order = sorted(by_rd, key=_stable)          # stable, not "newest first"
+    meta = {"label_rows": len(rows), "registered_domains": len(by_rd),
+            "shared_hosting_names_left_out": len(shared), "junk_rows": junk}
+    return [by_rd[d] for d in order[:limit]], meta
+
+
+def collect_normals(db_path: str, limit: int = 50) -> list[str]:
+    """Brand-word sites from Tranco (negatives table) + every official site."""
+    conn = _ro(db_path)
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        # Look in labels table
-        rows = cursor.execute("""
-            SELECT domain, brand, first_seen, feed
-            FROM labels
-            WHERE brand IS NOT NULL AND brand != ''
-            GROUP BY domain
-            ORDER BY first_seen DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        log.warning("could not read labels from %s: %s", db_path, e)
-        return []
+        hosts = [h for (h,) in conn.execute("SELECT host FROM negatives WHERE source = 'tranco'")]
+    except sqlite3.OperationalError:
+        hosts = []
+    conn.close()
+    picked = set()
+    for h in hosts:
+        h = F.clean_host(h)
+        if h and F.brand_hits(h):
+            rd, is_shared = _extract_domain(h)
+            if rd and not is_shared:
+                picked.add(rd)
+    out = sorted(picked, key=_stable)[:limit]
+    return sorted(set(out) | {o for o in F.OFFICIAL if "." in o})
+
+
+def _days_between(later_iso: str | None, earlier_iso: str | None) -> float | None:
+    a, b = _parse_iso_datetime(later_iso), _parse_iso_datetime(earlier_iso)
+    if a is None or b is None:
+        return None
+    return round((a - b).total_seconds() / 86400.0, 2)
+
+
+def _group(registrar: str | None) -> str:
+    low = (registrar or "").lower()
+    for key, name in (("dominet", "Dominet (HK)"), ("namesilo", "NameSilo"), ("gname", "Gname")):
+        if key in low:
+            return name
+    return "Others"
+
+
+def _pct(n, d):
+    return round(100.0 * n / d, 1) if d else 0.0
 
 
 def run_evidence_study(scam_sample: list[dict], normal_sample: list[str]) -> dict:
     print(f"Running RDAP verification study over {len(scam_sample)} scam domains...")
-    scam_results = []
     t0 = time.time()
+    scam_results = []
     for idx, item in enumerate(scam_sample):
-        domain = item["domain"]
-        v = verify(domain)
-        scam_results.append({
-            "domain": domain,
-            "brand": item.get("brand"),
-            "feed": item.get("feed"),
-            "first_seen": item.get("first_seen"),
-            "rdap": v,
-        })
+        v = verify(item["domain"])
+        at_first = _days_between(item.get("first_seen"), v.get("registered_at")) if v["ok"] else None
+        scam_results.append(dict(item, rdap=v, age_at_first_seen=at_first))
         if (idx + 1) % 25 == 0 or (idx + 1) == len(scam_sample):
             print(f"  Processed {idx + 1}/{len(scam_sample)} domains...")
 
     print(f"Running RDAP verification over {len(normal_sample)} normal control domains...")
-    normal_results = []
-    for norm in normal_sample:
-        v = verify(norm)
-        normal_results.append({
-            "domain": norm,
-            "rdap": v
-        })
+    normal_results = [{"domain": d, "rdap": verify(d)} for d in normal_sample]
 
-    # Metrics calculation
-    valid_ages = [r["rdap"]["age_days"] for r in scam_results if r["rdap"]["ok"] and r["rdap"]["age_days"] is not None]
-    n_scam_total = len(scam_results)
-    n_scam_ok = len(valid_ages)
-    n_not_found = sum(1 for r in scam_results if r["rdap"].get("error") == "not_found")
-    n_timeout_err = n_scam_total - n_scam_ok - n_not_found
+    ok = [r for r in scam_results if r["rdap"]["ok"]]
+    ages_now = [r["rdap"]["age_days"] for r in ok]
+    ages_first = [r["age_at_first_seen"] for r in ok if r["age_at_first_seen"] is not None]
+    errors = Counter(r["rdap"]["error"] for r in scam_results if not r["rdap"]["ok"])
+    regs = [r["rdap"]["registrar"] for r in ok if r["rdap"].get("registrar")]
+    reg_counts = Counter(_group(x) for x in regs)
+    risky = sum(1 for r in ok if r["rdap"].get("risky_registrar"))
 
-    under_3d = sum(1 for a in valid_ages if a < 3.0)
-    under_7d = sum(1 for a in valid_ages if a < 7.0)
-    under_30d = sum(1 for a in valid_ages if a < 30.0)
-    median_age = statistics.median(valid_ages) if valid_ages else 0.0
+    n_ok = [r for r in normal_results if r["rdap"]["ok"]]
+    n_ages = [r["rdap"]["age_days"] for r in n_ok]
 
-    # Registrar shares
-    registrars = [r["rdap"]["registrar"] for r in scam_results if r["rdap"]["ok"] and r["rdap"].get("registrar")]
-    reg_counts = Counter()
-    for reg in registrars:
-        lower = reg.lower()
-        if "dominet" in lower:
-            reg_counts["Dominet (HK)"] += 1
-        elif "namesilo" in lower:
-            reg_counts["NameSilo"] += 1
-        elif "gname" in lower:
-            reg_counts["Gname"] += 1
-        else:
-            reg_counts["Others"] += 1
+    def under(ages, days):
+        c = sum(1 for a in ages if a < days)
+        return {"count": c, "pct": _pct(c, len(ages))}
 
-    total_with_reg = len(registrars) or 1
-    reg_shares = {k: round((v / total_with_reg) * 100.0, 2) for k, v in reg_counts.items()}
-
-    # Normal comparison
-    norm_ages = [r["rdap"]["age_days"] for r in normal_results if r["rdap"]["ok"] and r["rdap"]["age_days"] is not None]
-    norm_median_years = (statistics.median(norm_ages) / 365.0) if norm_ages else 0.0
-
-    out = {
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "duration_seconds": round(time.time() - t0, 2),
         "scams": {
-            "n_total": n_scam_total,
-            "n_ok": n_scam_ok,
-            "n_not_found": n_not_found,
-            "n_error": n_timeout_err,
-            "median_age_days": round(median_age, 2),
-            "under_3_days": {"count": under_3d, "pct": round((under_3d / (n_scam_ok or 1)) * 100.0, 1)},
-            "under_7_days": {"count": under_7d, "pct": round((under_7d / (n_scam_ok or 1)) * 100.0, 1)},
-            "under_30_days": {"count": under_30d, "pct": round((under_30d / (n_scam_ok or 1)) * 100.0, 1)},
+            "n_total": len(scam_results),
+            "n_ok": len(ok),
+            "n_failed_by_error": dict(errors),
+            "age_now_median_days": round(statistics.median(ages_now), 2) if ages_now else None,
+            "age_at_first_seen_n": len(ages_first),
+            "age_at_first_seen_median_days": round(statistics.median(ages_first), 2) if ages_first else None,
+            "age_at_first_seen_under": {f"{d}_days": under(ages_first, d) for d in (3, 7, 30, 365)},
+            "registrar_n": len(regs),
             "registrar_counts": dict(reg_counts),
-            "registrar_shares_pct": reg_shares,
+            "registrar_shares_pct": {k: _pct(v, len(regs)) for k, v in reg_counts.items()},
+            "risky_registrar": {"count": risky, "pct": _pct(risky, len(ok))},
             "unit42_benchmark_pct": UNIT42_BENCHMARK,
+            "by_category": dict(Counter(r["category"] for r in scam_results)),
         },
         "normals": {
             "n_total": len(normal_results),
-            "median_age_years": round(norm_median_years, 2),
-            "flagged_as_young": sum(1 for a in norm_ages if a < 365.0),
+            "n_ok": len(n_ok),
+            "n_failed_by_error": dict(Counter(r["rdap"]["error"] for r in normal_results if not r["rdap"]["ok"])),
+            "median_age_years": round(statistics.median(n_ages) / 365.0, 2) if n_ages else None,
+            "under_365_days": under(n_ages, 365),
+            "risky_registrar": sum(1 for r in n_ok if r["rdap"].get("risky_registrar")),
         },
+        "live_alerts": None,   # HIGH removed / MAYBE rescued: needs live alerts (not yet)
         "sample_evidence": [
-            {
-                "domain": r["domain"],
-                "brand": r.get("brand"),
-                "age_days": r["rdap"].get("age_days"),
-                "registrar": r["rdap"].get("registrar"),
-                "risky_registrar": r["rdap"].get("risky_registrar"),
-            }
-            for r in scam_results[:15]
-        ]
+            {"domain": r["domain"], "brand": r.get("brand"), "category": r.get("category"),
+             "first_seen": r.get("first_seen"), "registered_at": r["rdap"].get("registered_at"),
+             "age_at_first_seen": r["age_at_first_seen"], "age_days": r["rdap"].get("age_days"),
+             "registrar": r["rdap"].get("registrar"), "risky_registrar": r["rdap"].get("risky_registrar"),
+             "error": r["rdap"].get("error")}
+            for r in scam_results[:20]
+        ],
     }
-    return out
 
 
-def write_reports(study: dict, out_dir: str = REPORTS_DIR) -> tuple[str, str]:
+def write_reports(study: dict, sample_meta: dict, out_dir: str = REPORTS_DIR) -> tuple[str, str]:
     os.makedirs(out_dir, exist_ok=True)
+    study = dict(study, sample=sample_meta)
     json_path = os.path.join(out_dir, "stage3_evidence.json")
     md_path = os.path.join(out_dir, "stage3_evidence.md")
-
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(study, f, indent=2)
 
-    scams = study["scams"]
-    norm = study["normals"]
+    s, n, m = study["scams"], study["normals"], sample_meta
+    fails = ", ".join(f"{k}: {v}" for k, v in s["n_failed_by_error"].items()) or "none"
+    nfails = ", ".join(f"{k}: {v}" for k, v in n["n_failed_by_error"].items()) or "none"
+    u42_scam = round(sum(s["registrar_shares_pct"].get(k, 0.0) for k in ("Dominet (HK)", "NameSilo", "Gname")), 1)
+    u42_ref = round(100.0 - UNIT42_BENCHMARK["Others"], 2)
+    au = s["age_at_first_seen_under"]
 
-    md_content = f"""# Stage 3 Domain Verifier Evidence Report
+    def fmt_days(x):
+        return "-" if x is None else f"{x:,.1f} days"
 
-**Generated:** {study['generated_at']}  
-**Evaluation Scope:** Brand-tagged toll, delivery & government scam domains vs legitimate control sites  
-**Analysis Target:** Domain age distribution at listing & registrar share vs Unit 42 Smishing Triad IOCs
-
----
-
-## 1. Executive Summary & Key Findings (for Slides)
-
-- **Brand-New Infrastructure:** **{scams['under_3_days']['pct']}%** of verified scam domains were **under 3 days old** at first listing (median age: **{scams['median_age_days']} days**).
-- **Established vs Disposable:** Normal legitimate brand domains have a median age of **{norm['median_age_years']} years**, with 0% falling under 365 days.
-- **Registrar Concentration:** Scammers heavily rely on a tight cluster of bulletproof/cheap registrars matching Unit 42 threat intelligence.
-
----
-
-## 2. Domain Age Breakdown
-
-| Metric | Scam Domains (N={scams['n_ok']}) | Legitimate Control (N={norm['n_total']}) |
-|---|---|---|
-| **Median Age** | **{scams['median_age_days']} days** | **{norm['median_age_years']} years** |
-| **Under 3 Days Old** | **{scams['under_3_days']['count']} ({scams['under_3_days']['pct']}%)** | **0 (0.0%)** |
-| **Under 7 Days Old** | **{scams['under_7_days']['count']} ({scams['under_7_days']['pct']}%)** | **0 (0.0%)** |
-| **Under 30 Days Old** | **{scams['under_30_days']['count']} ({scams['under_30_days']['pct']}%)** | **0 (0.0%)** |
-| *Records Not Found (404 / Purged)* | {scams['n_not_found']} | 0 |
-
----
-
-## 3. Registrar Distribution vs Unit 42 Benchmark
-
-| Registrar Group | Scamouflage Measured (%) | Unit 42 Smishing Triad Benchmark (%) |
-|---|---|---|
-| **Dominet (HK) Limited** | {scams['registrar_shares_pct'].get('Dominet (HK)', 0.0)}% | 68.06% |
-| **NameSilo, LLC** | {scams['registrar_shares_pct'].get('NameSilo', 0.0)}% | 11.85% |
-| **Gname.com Pte. Ltd.** | {scams['registrar_shares_pct'].get('Gname', 0.0)}% | 7.94% |
-| **Others / Diverse** | {scams['registrar_shares_pct'].get('Others', 0.0)}% | 12.15% |
-
----
-
-## 4. Sample Forensics Table (Latest Detections)
-
-| Target Domain | Impersonated Brand | Age | Registrar | Risky Tag |
-|---|---|---|---|---|
-"""
-    for item in study.get("sample_evidence", []):
-        age_str = f"{item['age_days']:.1f} days" if item['age_days'] is not None else "not found"
-        reg_str = item['registrar'] or "Unknown"
-        risky_badge = "🔴 YES" if item['risky_registrar'] else "⚪ No"
-        md_content += f"| `{item['domain']}` | **{item['brand'] or 'Toll/Gov'}** | {age_str} | {reg_str} | {risky_badge} |\n"
-
-    md_content += """
----
-*Generated by `model/stage3_stats.py` using cached, rate-limited RDAP queries.*
-"""
-
+    lines = [
+        "# Stage 3 Domain Verifier Evidence Report", "",
+        f"**Generated:** {study['generated_at']} by `python -m model.stage3_stats` "
+        "(cached, rate-limited RDAP via rdap.org; registry metadata only, no site is contacted).  ",
+        f"**Scam sample:** {s['n_total']} registered domains, picked in a stable hash order from "
+        f"{m['registered_domains']:,} brand-tagged toll/delivery/gov registered domains in `labels.db` "
+        f"({m['label_rows']:,} label rows; {m['shared_hosting_names_left_out']:,} names on shared "
+        "hosting left out because RDAP would describe the platform). "
+        f"Categories: {', '.join(f'{k} {v}' for k, v in s['by_category'].items())}.  ",
+        f"**Normal sample:** {n['n_total']} brand-word sites from Tranco (`negatives`) plus "
+        "`labels/official.txt`.", "",
+        "## 1. Key findings (computed, for the slides)", "",
+        f"- **Age when we first saw it on a feed:** median **{fmt_days(s['age_at_first_seen_median_days'])}** "
+        f"(N={s['age_at_first_seen_n']}); **{au['3_days']['count']} of {s['age_at_first_seen_n']}** "
+        f"({au['3_days']['pct']}%) were under 3 days old, {au['30_days']['count']} ({au['30_days']['pct']}%) "
+        "under 30 days.",
+        f"- **Normal brand-word sites:** median age **{n['median_age_years']} years** (N={n['n_ok']}); "
+        f"{n['under_365_days']['count']} of {n['n_ok']} are under a year old.",
+        f"- **Registrars:** {u42_scam}% of our scam domains (N={s['registrar_n']}) use the three "
+        f"Unit 42 registrars (Dominet, NameSilo, Gname), against {u42_ref}% in Unit 42's Smishing "
+        "Triad data. Our sample covers all toll/delivery/gov phishing in the feeds, not only that "
+        "one group, so it is far more spread out.",
+        f"- **Lookups that failed:** {fails} (of {s['n_total']}). They are counted, not dropped.",
+        "",
+        "Note: `first_seen` is when OUR feeds loop first saw the name on a list. The loop started on "
+        "2026-10-17, so for names that were already listed before then this is an upper bound on "
+        "the age at listing, not the age at first listing.", "",
+        "## 2. Domain age", "",
+        f"| | Scam domains | Normal brand-word sites |", "|---|---:|---:|",
+        f"| RDAP answered | {s['n_ok']} of {s['n_total']} | {n['n_ok']} of {n['n_total']} |",
+        f"| Median age today | {fmt_days(s['age_now_median_days'])} | "
+        f"{n['median_age_years']} years |",
+        f"| Median age when first seen on a feed | {fmt_days(s['age_at_first_seen_median_days'])} | - |",
+    ]
+    for d in (3, 7, 30, 365):
+        k = f"{d}_days"
+        lines.append(f"| Under {d} days when first seen | {au[k]['count']} ({au[k]['pct']}%) | - |")
+    lines += [f"| Under 365 days today | - | {n['under_365_days']['count']} "
+              f"({n['under_365_days']['pct']}%) |",
+              f"| Failed lookups | {fails} | {nfails} |", "",
+              "## 3. Registrar distribution vs Unit 42", "",
+              f"| Registrar group | Scamouflage measured (N={s['registrar_n']}) | Unit 42 Smishing Triad |",
+              "|---|---:|---:|"]
+    for k in ("Dominet (HK)", "NameSilo", "Gname", "Others"):
+        lines.append(f"| {k} | {s['registrar_shares_pct'].get(k, 0.0)}% "
+                     f"({s['registrar_counts'].get(k, 0)}) | {UNIT42_BENCHMARK[k]}% |")
+    lines += ["", f"Risky registrar (labels/risky_registrars.txt) among answered scam domains: "
+              f"{s['risky_registrar']['count']} of {s['n_ok']} ({s['risky_registrar']['pct']}%); "
+              f"among normal sites: {n['risky_registrar']} of {n['n_ok']}.", "",
+              "## 4. Live alerts", "",
+              "HIGH removed / MAYBE rescued counts need live alerts from the engine; not available yet.", "",
+              "## 5. Sample (plain text, do not open)", "",
+              "| Registered domain | Brand | First seen | Registered | Age when first seen | Registrar |",
+              "|---|---|---|---|---:|---|"]
+    for it in study.get("sample_evidence", []):
+        lines.append(f"| {it['domain']} | {it['brand']} | {(it['first_seen'] or '')[:10]} | "
+                     f"{(it['registered_at'] or it['error'] or '')[:10]} | {fmt_days(it['age_at_first_seen'])} | "
+                     f"{it['registrar'] or '-'} |")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
-
+        f.write("\n".join(lines) + "\n")
     return json_path, md_path
 
 
 def main():
     p = argparse.ArgumentParser(description="Generate Stage 3 Evidence Stats for Presentation Slides")
-    p.add_argument("--db", default=None, help="Path to labels.db")
-    p.add_argument("--limit", type=int, default=100, help="Number of scam domains to sample")
+    p.add_argument("--db", default=None, help="Path to labels.db (default $LABELS_DB, ~/tolltrap/data/labels.db)")
+    p.add_argument("--limit", type=int, default=150, help="Number of scam registered domains to sample")
+    p.add_argument("--normals", type=int, default=50, help="Number of normal brand-word sites to sample")
     p.add_argument("--out-dir", default=REPORTS_DIR, help="Where to save reports")
     args = p.parse_args()
 
     db_path = find_db_path(args.db)
     print(f"Using database: {db_path}")
-    scam_sample = collect_scam_domains(db_path, limit=args.limit)
+    scam_sample, meta = collect_scam_domains(db_path, limit=args.limit)
     if not scam_sample:
-        # If no labels.db locally, generate using representative benchmark cases
-        print("Notice: No brand-tagged labels found in local DB. Using representative benchmark cases.")
-        scam_sample = [
-            {"domain": "ezpass-tollservice.cfd", "brand": "ezpass", "feed": "openphish", "first_seen": 1792200000},
-            {"domain": "usps-post-redeliver.top", "brand": "usps", "feed": "phishingdb", "first_seen": 1792205000},
-            {"domain": "sunpass-pay-fees.win", "brand": "sunpass", "feed": "phishunt", "first_seen": 1792210000},
-            {"domain": "ntta-tollpay.bid", "brand": "ntta", "feed": "unit42", "first_seen": 1792215000},
-            {"domain": "dmv-renew-fees.icu", "brand": "dmv", "feed": "openphish", "first_seen": 1792220000},
-        ]
-
-    study = run_evidence_study(scam_sample, NORMAL_DOMAINS_SAMPLE)
-    json_path, md_path = write_reports(study, args.out_dir)
-    print(f"\nEvidence reports successfully written:")
+        sys.exit("error: no brand-tagged toll/delivery/gov rows in labels.db. No data is made up.")
+    study = run_evidence_study(scam_sample, collect_normals(db_path, args.normals))
+    json_path, md_path = write_reports(study, meta, args.out_dir)
+    print("\nEvidence reports successfully written:")
     print(f"  JSON: {json_path}")
     print(f"  Markdown: {md_path}")
 
