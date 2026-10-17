@@ -24,12 +24,21 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEY_PATH = os.environ.get("SCAM_SIGNING_KEY", os.path.join(REPO, "keys", "alert_ed25519.pem"))
 PUB_PATH = os.path.join(REPO, "data", "alert_pubkey.pem")
 
-SIGNED_FIELDS = ("cert_id", "domain", "domains", "score", "reasons", "seen_at",
+LEGACY_FIELDS = ("cert_id", "domain", "domains", "score", "reasons", "seen_at",
                  "issuer", "log", "verify", "crtsh_url")
+# The engine's Decision fields (ingest/db.py DECISION_COLUMNS), signed too.
+DECISION_SIGNED = ("verdict", "stage", "s1", "s2_boost", "brand", "category", "verified",
+                   "age_days", "registrar", "risky_registrar", "model_version",
+                   "cert_seen_at", "decided_at")
+SIGNED_FIELDS = LEGACY_FIELDS + DECISION_SIGNED
 
 
 def canonical(alert: dict) -> bytes:
-    return json.dumps({k: alert.get(k) for k in SIGNED_FIELDS},
+    """Alerts written before the engine (or with --no-engine) have every Decision field NULL and
+    were signed over LEGACY_FIELDS only. A signature over all SIGNED_FIELDS never verifies against
+    the legacy bytes (and vice versa), so blanking the Decision fields can't forge anything."""
+    fields = SIGNED_FIELDS if any(alert.get(k) is not None for k in DECISION_SIGNED) else LEGACY_FIELDS
+    return json.dumps({k: alert.get(k) for k in fields},
                       sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
 
