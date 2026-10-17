@@ -1,0 +1,632 @@
+/* Scamouflage dashboard
+ * Every number comes live from the LinuxONE API. If the connection drops,
+ * pipeline counters fall back to example values with an "Offline sample" badge.
+ * Accuracy numbers are NEVER faked: until /api/results has them, the card says "Evaluation running…".
+ */
+
+// ===================== CONFIG: edit these =====================
+const CONFIG = {
+  // If the API serves this page (http://localhost:8000/), leave '' (same origin).
+  // Otherwise (Live Server / python http.server) it uses localhost:8000 through your SSH tunnel.
+  API_BASE: location.port === '8000' ? '' : 'http://localhost:8000',
+
+  ENDPOINTS: {
+    stats:   '/api/stats',       // live pipeline counters (+ recent domain names for the firehose, when added)
+    alerts:  '/api/alerts',      // { items: [...] }
+    summary: '/api/alerts/summary', // { known_total, new_total, total }
+    results: '/api/results',     // model evaluation: false alarms/day, recall, precision, lead time
+    bench:   '/api/hardware',    // CPACF on/off benchmark (static, fetched once)
+    cpacf:   '/api/cpacf/live',  // live CPACF activity counters
+  },
+  WS_PATH: '/ws/live',           // live stream (domain names + alerts), optional
+
+  EXTENSION_URL: '#',            // TODO: Chrome Web Store link or a download link
+  POLL_MS: 2000,
+  CATCHES_LIMIT: 15,
+  FIREHOSE_PX_PER_S: 120,        // stream scroll speed
+  CATCH_PAUSE_MS: 4500,          // how long the stream freezes on a catch
+};
+// Add ?replay to the URL to run a clearly-labelled demo replay (sample domains + a sample catch).
+const REPLAY = new URLSearchParams(location.search).has('replay');
+// ===============================================================
+
+const $ = (s, el = document) => el.querySelector(s);
+const fmt = n => (n == null || isNaN(n)) ? '–' : Math.round(n).toLocaleString();
+const pick = (o, ...keys) => { for (const k of keys) if (o && o[k] != null) return o[k]; return undefined; };
+
+async function getJSON(key) {
+  try {
+    const r = await fetch(CONFIG.API_BASE + CONFIG.ENDPOINTS[key], { cache: 'no-store' });
+    if (!r.ok) return null;
+    const data = await r.json();
+    // The API marks placeholder responses with source: "mock". Never show those as live numbers.
+    if (data && data.source === 'mock') return null;
+    return data;
+  } catch { return null; }
+}
+function setSim(key, isSim) { document.querySelectorAll(`[data-sim="${key}"]`).forEach(b => b.hidden = !isSim); }
+function setStatus(state, text) {
+  const s = $('#status');
+  s.classList.remove('live', 'offline');
+  if (state) s.classList.add(state);
+  $('#status-text').textContent = text;
+}
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;     // textContent only: domain names are untrusted
+  return e;
+}
+
+// ---------- Count numbers up smoothly ----------
+const shown = {};
+function countTo(id, target, decimals = 0, suffix = '') {
+  const node = document.getElementById(id);
+  if (!node) return;
+  if (target == null || isNaN(target)) { node.textContent = '–'; delete shown[id]; return; }
+  const start = shown[id] ?? 0;
+  const t0 = performance.now(), dur = shown[id] == null ? 1200 : 900;
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur);
+    const v = start + (target - start) * (1 - Math.pow(1 - p, 3));
+    node.textContent = (decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString()) + suffix;
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  shown[id] = target;
+}
+
+// ---------- Alerts: tolerant of field names ----------
+const TOLL = ['ntta','zipcash','tolltag','txtag','txdot','hctra','eztag','e-zpass','ezpass','sunpass','fastrak','thetollroads','ipass','ezdrive','quickpass','pikepass','peachpass','goodtogo','toll'];
+const DELIVERY = ['usps','ups','fedex','dhl','deliver','redeliver','parcel','package','shipping','tracking'];
+const GOV = ['dmv','irs','gov','citation','court','violation','ticket','fine'];
+function guessCategory(d = '') {
+  d = d.toLowerCase();
+  if (TOLL.some(w => d.includes(w))) return 'toll';
+  if (DELIVERY.some(w => d.includes(w))) return 'delivery';
+  if (GOV.some(w => d.includes(w))) return 'gov';
+  return 'other';
+}
+const toScore = v => { const n = Number(v); return isNaN(n) ? 0 : (n > 1 ? n / 100 : n); };
+const toDate = v => {
+  if (v == null) return null;
+  if (typeof v === 'number') return new Date(v < 1e12 ? v * 1000 : v);
+  const d = new Date(v); return isNaN(d) ? null : d;
+};
+const REASON_TEXT = {
+  brand_in_subdomain: 'Brand name in front of a fake site', cheap_tld: 'Cheap web address ending',
+  campaign_match: 'Matches a known scam campaign', typosquat: 'Misspelled brand name',
+  random_token: 'Random-looking characters', burst: 'Many look-alike sites created at once',
+  new_registrar: 'Registrar often used by scammers',
+};
+function humanReason(r) {
+  if (typeof r !== 'string') r = r?.text || r?.label || r?.reason || String(r);
+  return REASON_TEXT[r] || (r.charAt(0).toUpperCase() + r.slice(1)).replace(/_/g, ' ');
+}
+function normalizeAlert(a) {
+  const domain = String(pick(a, 'domain', 'name', 'host', 'fqdn') ?? '');
+  let reasons = pick(a, 'reasons', 'why', 'tags', 'explanations') ?? [];
+  if (typeof reasons === 'string') reasons = reasons.split(/[;,|]/).map(s => s.trim()).filter(Boolean);
+  const time = toDate(pick(a, 'ts', 'time', 'timestamp', 'cert_time', 'seen_at', 'created_at'));
+  const sig = pick(a, 'signature', 'sig', 'seal', 'signed', 'signature_verified', 'seal_verified', 'sig_valid');
+  return {
+    id: String(pick(a, 'cert_id', 'id', 'alert_id', 'uid') ?? `${domain}|${time?.getTime() ?? ''}`),
+    domain,
+    score: toScore(pick(a, 'score', 'risk', 'risk_score', 'prob', 'probability')),
+    reasons: reasons.map(humanReason),
+    category: String(pick(a, 'category', 'brand_type', 'type') ?? guessCategory(domain)).toLowerCase(),
+    time,
+    stage: pick(a, 'stage'),
+    sealed: sig === undefined ? null : !!sig,
+    crtsh: pick(a, 'crtsh_url', 'crtsh') || `https://crt.sh/?q=${encodeURIComponent(domain)}`,
+    confirmedBy: pick(a, 'confirmed_by', 'confirmed'),
+    campaign: pick(a, 'campaign', 'campaign_template'),
+    demo: !!a.__demo,
+  };
+}
+function normalizeAlerts(raw) {
+  const arr = Array.isArray(raw) ? raw : (raw?.items || raw?.alerts || raw?.data || raw?.results || []);
+  return arr.map(normalizeAlert).sort((x, y) => (y.time?.getTime() || 0) - (x.time?.getTime() || 0));
+}
+const isKnown = a => Number(a.stage) === 0;   // stage 0 = already on a known public list
+
+// ---------- Offline samples (pipeline counters only; never accuracy) ----------
+const SAMPLE = {
+  stats: { checked: 8563272, rate: 447, verifiedPct: 99.99, verifyMs: 0.21, lag: 0.09 },
+  bench: {
+    machine_type: '9175',
+    results: {
+      'verify (real CT certs)': { on: 8122, off: 1871, speedup: 4.34 },
+      'Ed25519 sign (alerts)':  { on: 28082, off: 13949, speedup: 2.01 },
+      'SHA-256 (cert DER)':     { on: 1437062, off: 219422, speedup: 6.55 },
+      'SHA-256 (bulk)':         { on: 4543, off: 275, speedup: 16.53 },
+    },
+    verify_by_algo: { 'ecdsa-p384': { speedup: 7.18 }, 'ecdsa-p256': { speedup: 5.02 }, 'rsa-2048': { speedup: 1.04 } },
+  },
+  cpacf: { groups: { ecdsa_verify_per_s: 264, sha_per_s: 22150 }, totals: { 'KDSA ECDSA Verify P256': 1690866, 'KDSA ECDSA Verify P384': 1775204 } },
+};
+const REPLAY_DOMAINS = ['shop-autumn-sale.com','mail.northwind-co.net','api.trailcam.io','blog.greenleafgardens.org','cdn.pixelforge.app','portal.lakeside-dental.com','www.quietharbor.inn','status.cloudkite.dev','learn.mathbridge.edu','m.citybikes.co','assets.bluefinmedia.tv','go.fernandpine.com','app.ledgerly.finance','www.riverbendvet.com','docs.tinyhttp.dev','images.harvestmarket.store','vpn.acme-corp.net','beta.storyloom.ai','www.oakhillchurch.org','grafana.internal-ops.cloud'];
+const REPLAY_CATCH = { domain: 'ntta.com-tollpay-x7q.win', score: 0.96, stage: 1, signature_verified: true,
+  reasons: ['Toll agency name in front of a fake site', 'cheap_tld', 'Matches campaign brand.com-*.win'], __demo: true };
+
+// =================================================================
+// FIREHOSE: blurred live domains; a catch freezes it and de-cloaks
+// =================================================================
+const fh = {
+  queue: [], seen: new Set(), x: 0, last: 0, pausedUntil: 0, catchQueue: [],
+  track: null, strip: null, started: false, demoTimer: null,
+};
+function feedDomains(list) {
+  if (!Array.isArray(list)) return;
+  for (const d of list) {
+    const name = typeof d === 'string' ? d : (d?.domain || d?.name);
+    if (!name || fh.seen.has(name)) continue;
+    fh.seen.add(name);
+    fh.queue.push(name);
+  }
+  if (fh.seen.size > 5000) fh.seen = new Set([...fh.seen].slice(-2000));
+  if (fh.queue.length > 400) fh.queue.splice(0, fh.queue.length - 400);
+  if (fh.queue.length) $('#fh-wait').hidden = true;
+}
+function extractDomains(obj) {
+  if (!obj) return null;
+  return pick(obj, 'recent_domains', 'sample_domains', 'domains', 'recent', 'stream') ||
+         (obj.domain && obj.type !== 'alert' ? [obj.domain] : null);
+}
+function fhFrame(now) {
+  const dt = fh.last ? Math.min(0.05, (now - fh.last) / 1000) : 0;
+  fh.last = now;
+  const paused = now < fh.pausedUntil;
+  $('.firehose').classList.toggle('paused', paused);
+
+  if (!paused) {
+    // A catch is waiting: de-cloak the item nearest the middle
+    if (fh.catchQueue.length) { triggerCatch(fh.catchQueue.shift(), now); }
+    else {
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      fh.x -= (reduce ? 25 : CONFIG.FIREHOSE_PX_PER_S) * dt;
+    }
+  }
+  // drop items that scrolled off the left
+  const first = fh.track.firstElementChild;
+  if (first) {
+    const w = first.offsetWidth + 22;
+    if (fh.x + w < 0) { first.remove(); fh.x += w; }
+  }
+  // append new items on the right
+  const stripW = fh.strip.clientWidth;
+  if (fh.track.scrollWidth + fh.x < stripW + 300 && fh.queue.length) {
+    fh.track.append(el('span', 'fh-item', fh.queue.shift()));
+  }
+  fh.track.style.transform = `translateX(${fh.x}px)`;
+  requestAnimationFrame(fhFrame);
+}
+function triggerCatch(alert, now) {
+  // Pick the stream item closest to the middle and turn it into the scam domain
+  const items = [...fh.track.children];
+  const mid = fh.strip.clientWidth / 2;
+  let best = null, bestD = Infinity;
+  for (const it of items) {
+    const c = it.offsetLeft + fh.x + it.offsetWidth / 2;
+    const d = Math.abs(c - mid);
+    if (d < bestD) { bestD = d; best = it; }
+  }
+  let target = best;
+  if (!target) { target = el('span', 'fh-item'); fh.track.append(target); }
+  target.textContent = alert.domain;
+  target.classList.add('caught');
+  fh.pausedUntil = now + CONFIG.CATCH_PAUSE_MS;
+  showCatchCard(alert, true);
+}
+function startFirehose() {
+  if (fh.started) return;
+  fh.started = true;
+  fh.track = $('#fh-track'); fh.strip = $('#fh-strip');
+  requestAnimationFrame(fhFrame);
+  connectWS();
+  if (REPLAY) startReplay();
+}
+function startReplay() {
+  $('#fh-demo').hidden = false;
+  const loop = () => { fh.seen.clear(); feedDomains([...REPLAY_DOMAINS].sort(() => Math.random() - .5)); };
+  loop(); setInterval(loop, 4000);
+  setTimeout(function again() {
+    const a = normalizeAlert({ ...REPLAY_CATCH, ts: Date.now() / 1000 });
+    fh.catchQueue.push(a);
+    setTimeout(again, 20000);
+  }, 3500);
+}
+
+// Live WebSocket (optional): domain names and alerts pushed from the server
+function connectWS() {
+  let base = CONFIG.API_BASE || location.origin;
+  base = base.replace(/^http/, 'ws');
+  let ws;
+  try { ws = new WebSocket(base + CONFIG.WS_PATH); } catch { return; }
+  ws.onmessage = ev => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    const msgs = Array.isArray(msg) ? msg : [msg];
+    for (const m of msgs) {
+      feedDomains(extractDomains(m));
+      if (m.type === 'cpacf' && m.groups) renderCpacf(m);
+      const al = m.type === 'alert' ? m : (m.alert || null);
+      if (al) handleAlerts([normalizeAlert(al)]);
+    }
+  };
+  ws.onclose = () => setTimeout(connectWS, 5000);
+  ws.onerror = () => { try { ws.close(); } catch {} };
+}
+
+// ---------- Catch card ----------
+function showCatchCard(a, animate) {
+  const card = $('#catch-card');
+  card.hidden = false;
+  const known = isKnown(a);
+  card.classList.toggle('known', known);
+  $('#cc-label').textContent = known ? 'Flagged · already on a known list' : 'New scam caught';
+  $('#cc-time').textContent = a.time ? timeAgo(a.time) : '';
+  $('#cc-demo').hidden = !a.demo;
+  const lv = level(a.score);
+  const sp = $('#cc-score');
+  sp.className = `score-pill ${lv}`; sp.textContent = Math.round(a.score * 100);
+  $('#cc-domain').textContent = a.domain;
+  const rs = $('#cc-reasons'); rs.replaceChildren();
+  a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
+  const link = $('#cc-crtsh'); link.href = a.crtsh;
+  $('#cc-stage').textContent = known ? 'Already listed by a public phishing feed' : 'Not on any public blocklist yet';
+  $('#cc-seal').hidden = a.sealed !== true;
+  if (animate) { card.classList.remove('snap'); void card.offsetWidth; card.classList.add('snap'); }
+}
+
+// ---------- Alert bookkeeping ----------
+const seenAlerts = new Set();
+let alertsPrimed = false;
+let latestAlerts = [];
+function handleAlerts(list) {
+  if (!alertsPrimed) {
+    list.forEach(a => seenAlerts.add(a.id));
+    alertsPrimed = true;
+    if (list[0]) showCatchCard(list[0], false);   // show the newest catch without the animation
+    return;
+  }
+  const fresh = list.filter(a => !seenAlerts.has(a.id));
+  fresh.forEach(a => seenAlerts.add(a.id));
+  fresh.reverse().forEach(a => fh.catchQueue.push(a));   // oldest first
+}
+
+// ---------- Rendering helpers ----------
+function timeAgo(d) {
+  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (s < 60) return `${Math.round(s)} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return d.toLocaleDateString();
+}
+const level = s => s >= .9 ? 'high' : s >= .75 ? 'mid' : 'low';
+const levelColor = { high: 'var(--risk)', mid: 'var(--warn)', low: 'var(--sage)' };
+const CAT = {
+  toll: { label: 'Toll', icon: '🚗' }, delivery: { label: 'Delivery', icon: '📦' },
+  gov: { label: 'Government', icon: '🏛️' }, other: { label: 'Other', icon: '❔' },
+};
+
+// =================================================================
+// DASHBOARD
+// =================================================================
+let benchCache = null;
+let simTick = 0;
+async function loadDashboard() {
+  const [statsRaw, alertsRaw, resultsRaw, benchRaw, cpacfRaw, summaryRaw] = await Promise.all([
+    getJSON('stats'), getJSON('alerts'), getJSON('results'),
+    benchCache ? Promise.resolve(benchCache) : getJSON('bench'),
+    getJSON('cpacf'), getJSON('summary'),
+  ]);
+  if (benchRaw?.results) benchCache = benchRaw;
+
+  const apiUp = !!(statsRaw || alertsRaw || cpacfRaw);
+  setStatus(apiUp ? 'live' : 'offline', apiUp ? 'Live' : 'Offline');
+
+  // ---- Firehose feed from stats (until the WebSocket is used) ----
+  if (statsRaw) feedDomains(extractDomains(statsRaw));
+
+  // ---- Top counters ----
+  let stats;
+  if (statsRaw) {
+    const v = statsRaw.verify || {};
+    const vTotal = (v.ok || 0) + (v.unknown_issuer || 0) + (v.failed || 0) + (v.bad || 0);
+    stats = {
+      checked: pick(statsRaw, 'processed_total', 'certs_total'),
+      rate: pick(statsRaw, 'certs_per_s'),
+      verifiedPct: vTotal ? Math.floor((v.ok / vTotal) * 10000) / 100 : null,
+      verifyMs: pick(statsRaw, 'avg_verify_ms'),
+      lag: pick(statsRaw, 'lag_s'),
+    };
+    setSim('stats', false);
+  } else {
+    simTick++;
+    stats = { ...SAMPLE.stats, checked: SAMPLE.stats.checked + simTick * SAMPLE.stats.rate * (CONFIG.POLL_MS / 1000) };
+    setSim('stats', true);
+  }
+  countTo('stat-checked', stats.checked);
+  countTo('stat-rate', stats.rate);
+  countTo('stat-hw', stats.verifiedPct, stats.verifiedPct === 100 ? 0 : 2, '%');
+  $('#stat-rate-sub').textContent = stats.verifyMs != null
+    ? `Each one verified in ${(+stats.verifyMs).toFixed(2)} ms · ${(+stats.lag || 0).toFixed(2)} s behind live`
+    : 'Live from public certificate logs';
+  $('#fh-rate').textContent = stats.rate ? `· showing a sample of ${fmt(stats.rate)} per second` : '';
+
+  const bench = benchCache || SAMPLE.bench;
+  const verifyX = bench.results?.['verify (real CT certs)']?.speedup;
+  $('#stat-hw-sub').textContent = verifyX
+    ? `Checked on IBM CPACF, ${(+verifyX).toFixed(1)}× faster than software`
+    : 'Each certificate checked against its issuer';
+
+  // ---- Alerts: new vs already-known, breakdown, catch moment ----
+  const list = alertsRaw ? normalizeAlerts(alertsRaw) : [];
+  latestAlerts = list;
+  if (alertsRaw) handleAlerts(list);
+  const knownCount = pick(summaryRaw, 'known_total') ?? pick(statsRaw, 'alerts_known', 'known_total') ?? list.filter(isKnown).length;
+  const newCount = pick(summaryRaw, 'new_total') ?? pick(statsRaw, 'alerts_new', 'new_total') ??
+                   Math.max(0, (pick(statsRaw, 'alerts_total') ?? list.length) - knownCount);
+  countTo('stat-new', newCount);
+  $('#stat-new').classList.toggle('hot', newCount > 0);
+  $('#stat-known').textContent = knownCount > 0
+    ? `Plus ${fmt(knownCount)} already on known lists`
+    : 'Not yet on any public blocklist';
+
+  const categories = {};
+  list.forEach(a => categories[a.category] = (categories[a.category] || 0) + 1);
+  renderBreakdown(categories);
+
+  // ---- Accuracy: real results or "Evaluation running…" ----
+  renderResults(resultsRaw);
+
+  // ---- IBM panel ----
+  renderBench(bench);
+  setSim('bench', !benchCache);
+  if (cpacfRaw?.groups && cpacfRaw.available !== false) { renderCpacf(cpacfRaw); setSim('cpacf', false); }
+  else { renderCpacf(SAMPLE.cpacf); setSim('cpacf', true); }
+}
+
+function renderBreakdown(cats) {
+  const box = $('#breakdown');
+  box.replaceChildren();
+  const rows = ['toll', 'delivery', 'gov', 'other'].map(k => [k, cats[k] || 0]).filter(([k, v]) => k !== 'other' || v > 0);
+  const max = Math.max(1, ...rows.map(r => r[1]));
+  rows.forEach(([k, v]) => {
+    const meta = CAT[k] || CAT.other;
+    const row = el('div', 'bd-row');
+    const name = el('div', 'bd-name');
+    name.append(el('span', 'bd-icon', meta.icon), el('span', null, meta.label));
+    const track = el('div', 'bd-track');
+    const fill = el('div', 'bd-fill'); fill.style.width = (v / max * 100) + '%';
+    track.append(fill);
+    row.append(name, track, el('div', 'bd-num', fmt(v)));
+    box.append(row);
+  });
+}
+
+function renderResults(raw) {
+  const r = raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results) ? raw.results : raw;
+  const faDay  = pick(r, 'false_alarms_per_day', 'fa_per_day', 'false_alarms_day');
+  const recall = pick(r, 'recall', 'test_recall');
+  const prec   = pick(r, 'precision', 'test_precision');
+  const fa10k  = pick(r, 'false_alarms_per_10k', 'fa_per_10k');
+  const leadH  = pick(r, 'median_lead_hours', 'lead_time_median_h', 'lead_hours_median', 'median_lead_h');
+  const box = $('#metrics');
+  const hasAny = [faDay, recall, prec, fa10k, leadH].some(v => v != null && !isNaN(v));
+  const key = JSON.stringify([faDay, recall, prec, fa10k, leadH]);
+  if (box.dataset.key === key) return;          // avoid re-rendering every poll
+  box.dataset.key = key;
+  box.replaceChildren();
+
+  if (!hasAny) {
+    const p = el('div', 'eval-pending');
+    p.append(el('div', 'spinner'), el('strong', null, 'Evaluation running…'),
+      el('span', 'fine', 'Real test-set numbers appear here as soon as the model finishes evaluating. We never show placeholder accuracy.'));
+    box.append(p);
+    return;
+  }
+  const pct = v => Math.round(v <= 1 ? v * 100 : v) + '%';
+  if (faDay != null) {
+    const h = el('div', 'metric metric-hero');
+    h.append(el('div', 'metric-value', (+faDay).toFixed(faDay < 10 ? 1 : 0)),
+      el('div', 'metric-label', 'False alarms per day'),
+      el('div', 'metric-tech', 'Normal websites wrongly flagged, out of the full live stream'));
+    box.append(h);
+  }
+  const grid = el('div', 'metrics');
+  const tiles = [];
+  if (recall != null) tiles.push([pct(recall), 'Scams caught', 'Recall on held-out test set']);
+  if (prec != null) tiles.push([pct(prec), 'Right when it warns', 'Precision']);
+  if (fa10k != null) tiles.push([(+fa10k).toFixed(1), 'False alarms per 10,000 sites', 'Threshold set on training data only']);
+  if (leadH != null) tiles.push([leadH >= 48 ? `${(leadH / 24).toFixed(1)} days` : `${Math.round(leadH)} h`, 'Head start on public blocklists', 'Median lead time']);
+  tiles.forEach(([val, label, tech]) => {
+    const t = el('div', 'metric');
+    t.append(el('div', 'metric-value', val), el('div', 'metric-label', label), el('div', 'metric-tech', tech));
+    grid.append(t);
+  });
+  if (tiles.length) box.append(grid);
+}
+
+// ---------- IBM chip + race ----------
+const MACHINES = { '9175': 'IBM z17', '9176': 'IBM z17', '3931': 'IBM z16', '3932': 'IBM z16', '8561': 'IBM z15', '8562': 'IBM z15' };
+let benchRendered = false;
+function renderBench(hw) {
+  const m = MACHINES[String(hw.machine_type)];
+  $('#bench-machine').textContent = m
+    ? `Measured on our ${m} server (machine type ${hw.machine_type}), with the chip on vs. switched off`
+    : 'Measured on our server, with the chip on vs. switched off';
+  $('#chip-name').textContent = m ? m.toUpperCase() : 'IBM Z';
+  if (benchRendered && hw === renderBench.last) return;
+  renderBench.last = hw; benchRendered = true;
+
+  const res = hw.results || {};
+  const v = res['verify (real CT certs)'];
+  race.on = v?.on || 0; race.off = v?.off || 0;
+  $('#race-x').textContent = v?.speedup ? `${(+v.speedup).toFixed(1)}×` : '–';
+
+  const items = [];
+  const algo = hw.verify_by_algo || {};
+  if (algo['ecdsa-p384']) items.push([algo['ecdsa-p384'].speedup, 'ECDSA P-384 signature checks']);
+  if (algo['ecdsa-p256']) items.push([algo['ecdsa-p256'].speedup, 'ECDSA P-256 signature checks']);
+  if (res['SHA-256 (bulk)']) items.push([res['SHA-256 (bulk)'].speedup, 'SHA-256 hashing (bulk)']);
+  if (res['SHA-256 (cert DER)']) items.push([res['SHA-256 (cert DER)'].speedup, 'Certificate fingerprints']);
+  if (res['Ed25519 sign (alerts)']) items.push([res['Ed25519 sign (alerts)'].speedup, 'Signing our alerts (Ed25519)']);
+  const rsa = algo['rsa-2048'] || algo['rsa-4096'];
+  if (rsa) items.push([rsa.speedup, 'RSA (not accelerated by CPACF)']);
+  const box = $('#speed-list'); box.replaceChildren();
+  items.forEach(([x, label]) => {
+    const it = el('div', `speed-item ${x < 1.5 ? 'flat' : ''}`);
+    it.append(el('div', 'sx', `${(+x).toFixed(1)}×`), el('div', 'sl', label));
+    box.append(it);
+  });
+}
+function renderCpacf(c) {
+  const g = c.groups || {}, t = c.totals || {};
+  const ecdsaTotal = Object.entries(t).filter(([k]) => k.startsWith('KDSA ECDSA Verify')).reduce((a, [, v]) => a + v, 0);
+  countTo('cpacf-verify', g.ecdsa_verify_per_s);
+  countTo('cpacf-sha', g.sha_per_s);
+  countTo('cpacf-total', ecdsaTotal);
+  chip.rate = g.ecdsa_verify_per_s || 0;
+}
+
+// Racing bars: both lanes run for one simulated second, then hold, then restart
+const race = { on: 0, off: 0, t0: 0 };
+function raceFrame(now) {
+  if (!race.t0) race.t0 = now;
+  const RUN = 1600, HOLD = 2600;
+  const t = (now - race.t0) % (RUN + HOLD);
+  const p = Math.min(1, t / RUN);
+  const e = 1 - Math.pow(1 - p, 2);
+  const max = Math.max(race.on, race.off, 1);
+  const onW = race.on / max * 100 * e, offW = race.off / max * 100 * e;
+  $('#race-on').style.width = onW + '%';
+  $('#race-off').style.width = offW + '%';
+  $('#race-on-num').textContent = race.on ? `${fmt(race.on * e)}/s` : '–';
+  $('#race-off-num').textContent = race.off ? `${fmt(race.off * e)}/s` : '–';
+  requestAnimationFrame(raceFrame);
+}
+
+// Chip graphic: pins light up in proportion to live CPACF activity
+const chip = { rate: 0, pins: [], acc: 0, last: 0 };
+function buildChip() {
+  const svg = $('.chip-svg'), ns = 'http://www.w3.org/2000/svg';
+  const pins = svg.querySelector('.pins'), grid = svg.querySelector('.chip-grid');
+  for (let i = 0; i < 8; i++) {
+    const p = 58 + i * 17.7;
+    [[p, 40, p, 20], [p, 200, p, 220], [40, p, 20, p], [200, p, 220, p]].forEach(([x1, y1, x2, y2]) => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+      l.setAttribute('class', 'pin'); pins.append(l); chip.pins.push(l);
+    });
+  }
+  for (let i = 1; i < 6; i++) {
+    const p = 58 + i * (124 / 6);
+    [[p, 58, p, 182], [58, p, 182, p]].forEach(([x1, y1, x2, y2]) => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+      grid.append(l);
+    });
+  }
+  requestAnimationFrame(chipFrame);
+}
+function chipFrame(now) {
+  const dt = chip.last ? (now - chip.last) / 1000 : 0; chip.last = now;
+  chip.acc += Math.min(40, chip.rate / 10) * dt;     // flashes per second scale with live rate
+  while (chip.acc >= 1) {
+    chip.acc -= 1;
+    const pin = chip.pins[Math.floor(Math.random() * chip.pins.length)];
+    pin.classList.add('lit'); setTimeout(() => pin.classList.remove('lit'), 180);
+  }
+  requestAnimationFrame(chipFrame);
+}
+
+// =================================================================
+// LATEST CATCHES tab
+// =================================================================
+async function loadCatches() {
+  const btn = $('#refresh-btn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  const raw = await getJSON('alerts');
+  setSim('alerts', !raw);
+  renderCatches(raw ? normalizeAlerts(raw).slice(0, CONFIG.CATCHES_LIMIT) : []);
+  btn.disabled = false; btn.textContent = '↻ Refresh';
+}
+function renderCatches(list) {
+  const ol = $('#catch-list');
+  ol.replaceChildren();
+  $('#catch-empty').hidden = list.length > 0;
+  list.forEach((a, i) => {
+    const lv = level(a.score);
+    const li = el('li', 'catch');
+    const main = el('button', 'catch-main'); main.type = 'button';
+    main.append(el('div', `score-pill ${lv}`, Math.round(a.score * 100)));
+    const info = el('div');
+    info.append(el('div', 'catch-domain', a.domain));
+    const meta = el('div', 'catch-meta');
+    meta.append(el('span', 'cat-chip', (CAT[a.category] || CAT.other).label));
+    if (a.stage != null) meta.append(el('span', `stage-chip ${isKnown(a) ? 'known' : 'new'}`, isKnown(a) ? 'Already on a known list' : 'New catch'));
+    if (a.time) meta.append(el('span', null, timeAgo(a.time)));
+    info.append(meta);
+    main.append(info);
+    main.append(a.sealed === true ? el('span', 'seal ok', '✓ Sealed on IBM CPACF') : el('span'));
+    main.append(el('span', 'chev', '›'));
+
+    const detail = el('div', 'catch-detail'); detail.hidden = true;
+    const bar = el('div', 'score-bar'); const fill = el('i');
+    fill.style.width = (a.score * 100) + '%'; fill.style.background = levelColor[lv];
+    bar.append(fill);
+    detail.append(el('div', 'fine', `Scam score ${Math.round(a.score * 100)} out of 100`), bar);
+    if (a.reasons.length) {
+      const rs = el('div', 'reasons');
+      a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
+      detail.append(el('div', 'fine', 'Why the AI flagged it'), rs);
+    }
+    const links = el('div', 'detail-links');
+    const crt = el('a', null, '↗ View public certificate record (crt.sh)');
+    crt.href = a.crtsh; crt.target = '_blank'; crt.rel = 'noopener noreferrer';
+    links.append(crt);
+    if (a.campaign) links.append(el('span', null, `Campaign: ${a.campaign}`));
+    if (a.confirmedBy) links.append(el('span', null, `✓ Confirmed by ${a.confirmedBy === true ? 'a public phishing feed' : a.confirmedBy}`));
+    detail.append(links);
+
+    main.addEventListener('click', () => {
+      const open = detail.hidden;
+      detail.hidden = !open; li.classList.toggle('open', open);
+      main.setAttribute('aria-expanded', String(open));
+    });
+    li.append(main, detail);
+    if (i === 0) { detail.hidden = false; li.classList.add('open'); }
+    ol.append(li);
+  });
+}
+
+// =================================================================
+// Tabs
+// =================================================================
+let pollTimer = null;
+function showTab(name) {
+  if (!['dashboard', 'catches', 'extension'].includes(name)) name = 'dashboard';
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => p.hidden = p.id !== `panel-${name}`);
+  clearInterval(pollTimer);
+  if (name === 'dashboard') {
+    startFirehose();
+    loadDashboard();
+    pollTimer = setInterval(loadDashboard, CONFIG.POLL_MS);
+  } else if (name === 'catches') {
+    loadCatches();
+  }
+  window.scrollTo({ top: 0 });
+}
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
+window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+$('#refresh-btn').addEventListener('click', loadCatches);
+$('#install-btn').href = CONFIG.EXTENSION_URL;
+
+buildChip();
+requestAnimationFrame(raceFrame);
+showTab(location.hash.slice(1) || 'dashboard');
