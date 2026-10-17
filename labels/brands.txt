@@ -1,0 +1,39 @@
+# word,category   (lowercase). Words of 4 letters or fewer must START a word in the name
+# (so "irs" matches irs-refund.top but not first.com). Longer words match anywhere.
+# Toll agencies and toll words
+toll,toll
+tolls,toll
+paytoll,toll
+tollway,toll
+turnpike,toll
+ezpass,toll
+e-zpass,toll
+ezdrive,toll
+ntta,toll
+tolltag,toll
+txtag,toll
+hctra,toll
+eztag,toll
+sunpass,toll
+fastrak,toll
+thetollroads,toll
+ipass,toll
+peachpass,toll
+pikepass,toll
+goodtogo,toll
+quickpass,toll
+epass,toll
+# Delivery lures from the same gang
+usps,delivery
+fedex,delivery
+dhl,delivery
+redeliver,delivery
+parcel,delivery
+# Government lures from the same gang
+irs,gov
+dmv,gov
+txdmv,gov
+txdot,gov
+citation,gov
+violation,gov
+courtfee,gov
