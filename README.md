@@ -69,7 +69,7 @@ Swap your real function into your file (e.g. `model/model.py`) and run the consu
 
 The `extension/` folder is a Chrome extension that warns users when they open a flagged site.
 
-- **The API publishes a list.** `GET /api/blocklist` on :8000 returns every flagged domain as a SHA-256 hash with its score and reasons, signed with the alert Ed25519 key.
+- **The API publishes a list.** `GET /api/blocklist` on :8000 returns every flagged domain as a SHA-256 hash with its score and reasons, signed with its own Ed25519 key (`tolltrap-dev-1`, see CONTRACTS.md §5).
 - **The extension keeps a copy.** Every 30 minutes it downloads the list, verifies the signature with the bundled public key, and saves it in the browser. Invalid or older lists are rejected.
 - **Checks happen in the browser.** For each site opened, it hashes the domain and its parents (e.g. `ezpass.com-xk2.win` and `com-xk2.win`) and looks them up locally. The server never sees what anyone browses.
 - **On a match**, a full-page warning shows the score and reasons, with *Go back* and *Continue anyway*.
@@ -89,4 +89,9 @@ sudo cpacfstatsd; sudo cpacfstats -e                    # optional: live hardwar
 .venv/bin/python -m bench.cpacf_ab data/recordings/ct-20261017-152933.jsonl.gz   # -> data/hardware.json
 .venv/bin/python -m alerts.check                        # verify the newest alerts' signatures
 .venv/bin/python -m alerts.check 42 --tamper            # demo: edited alert -> INVALID
+.venv/bin/python -m bench.cpacf_ab --protkeys-only      # refresh protected_keys in data/hardware.json
+.venv/bin/python -m bench.counters --once               # one 2 s sample of live CPACF rates
+tmux new -d -s cpacf 'cd ~/scamouflage && .venv/bin/python -m bench.counters 2>&1 | tee -a data/cpacf.log'   # -> data/cpacf_live.json every 2 s
 ```
+
+tmux sessions owned by Role D: `cpacf` (live counters). The signed blocklist is served by `backend/blocklist_route.py` (see CONTRACTS.md §5). Judges' summary with every number: [docs/crypto.md](docs/crypto.md).
