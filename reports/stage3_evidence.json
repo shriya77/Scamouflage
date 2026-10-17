@@ -1,153 +1,333 @@
 {
-  "generated_at": "2026-10-17T20:06:28.670782Z",
-  "duration_seconds": 107.17,
+  "generated_at": "2026-10-17T20:53:07Z",
+  "duration_seconds": 2.23,
   "scams": {
-    "n_total": 100,
-    "n_ok": 57,
-    "n_not_found": 10,
-    "n_error": 33,
-    "median_age_days": 115.11,
-    "under_3_days": {
-      "count": 1,
-      "pct": 1.8
+    "n_total": 150,
+    "n_ok": 24,
+    "n_failed_by_error": {
+      "not_found": 99,
+      "rate_limited": 27
     },
-    "under_7_days": {
-      "count": 1,
-      "pct": 1.8
+    "failed_tlds_by_error": {
+      "not_found": {
+        "top": 25,
+        "com": 25,
+        "ml": 10,
+        "cc": 8,
+        "xin": 7
+      },
+      "rate_limited": {
+        "top": 27
+      }
     },
-    "under_30_days": {
-      "count": 4,
-      "pct": 7.0
+    "age_now_median_days": 306.63,
+    "age_at_first_seen_n": 24,
+    "age_at_first_seen_median_days": 306.41,
+    "age_at_first_seen_under": {
+      "3_days": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "7_days": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "30_days": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "365_days": {
+        "count": 13,
+        "pct": 54.2
+      }
     },
+    "registrar_n": 22,
     "registrar_counts": {
-      "Others": 45,
-      "NameSilo": 3,
-      "Dominet (HK)": 6,
-      "Gname": 2
+      "Others": 20,
+      "Gname": 1,
+      "Dominet (HK)": 1
     },
     "registrar_shares_pct": {
-      "Others": 80.36,
-      "NameSilo": 5.36,
-      "Dominet (HK)": 10.71,
-      "Gname": 3.57
+      "Others": 90.9,
+      "Gname": 4.5,
+      "Dominet (HK)": 4.5
+    },
+    "risky_registrar": {
+      "count": 2,
+      "pct": 8.3
     },
     "unit42_benchmark_pct": {
       "Dominet (HK)": 68.06,
       "NameSilo": 11.85,
       "Gname": 7.94,
       "Others": 12.15
+    },
+    "by_category": {
+      "toll": 23,
+      "delivery": 99,
+      "gov": 28
     }
   },
   "normals": {
-    "n_total": 10,
-    "median_age_years": 29.2,
-    "flagged_as_young": 0
+    "n_total": 67,
+    "n_ok": 60,
+    "n_failed_by_error": {
+      "not_found": 7
+    },
+    "median_age_years": 17.52,
+    "under_365_days": {
+      "count": 5,
+      "pct": 8.3
+    },
+    "risky_registrar": 1
   },
+  "live_alerts": null,
   "sample_evidence": [
     {
-      "domain": "ticket-fedex.com",
-      "brand": "fedex",
-      "age_days": 372.981,
-      "registrar": "CNOBIN INFORMATION TECHNOLOGY LIMITED",
-      "risky_registrar": false
+      "domain": "com-ioiakil.top",
+      "brand": "ezdrive",
+      "category": "toll",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "tollymolly.store",
-      "brand": "toll",
-      "age_days": 1.4182,
-      "registrar": "HOSTINGER operations, UAB",
-      "risky_registrar": false
+      "domain": "postoffice-redeliveritem.com",
+      "brand": "redeliver",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "brizy.site",
-      "brand": "irs",
-      "age_days": 3130.3069,
+      "domain": "315kq.vip",
+      "brand": "dhl",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "com-ohte.xin",
+      "brand": "ezdrive",
+      "category": "toll",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "com-ndqf.xin",
+      "brand": "ezdrive",
+      "category": "toll",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "finance91-exercitationem57.pro",
+      "brand": "citation",
+      "category": "gov",
+      "first_seen": "2026-10-17T15:37:36+00:00",
+      "registered_at": "2026-04-29T02:01:03Z",
+      "age_at_first_seen": 171.57,
+      "age_days": 171.7861,
       "registrar": "NameCheap, Inc.",
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": null
     },
     {
-      "domain": "copyrights-violation-help.com",
+      "domain": "usps-informedo.top",
+      "brand": "usps",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "surge.sh",
       "brand": "violation",
+      "category": "gov",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
       "age_days": null,
       "registrar": null,
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "dhlthprivilege.com",
+      "domain": "com-trackgcs.top",
+      "brand": "usps",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "jibeapply.com",
+      "brand": "fedex",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": "2012-01-12T05:07:24Z",
+      "age_at_first_seen": 5392.44,
+      "age_days": 5392.6567,
+      "registrar": "MarkMonitor Inc.",
+      "risky_registrar": false,
+      "error": null
+    },
+    {
+      "domain": "facebook-checkpoint-policy-violation-social-network184.ml",
+      "brand": "violation",
+      "category": "gov",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "irsdepartement-gov.com",
+      "brand": "irs",
+      "category": "gov",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "smolfryz.com",
       "brand": "dhl",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
       "age_days": null,
       "registrar": null,
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "lineclaimform.com",
-      "brand": "irs",
-      "age_days": null,
-      "registrar": null,
-      "risky_registrar": false
-    },
-    {
-      "domain": "myportfolio.com",
-      "brand": "irs",
-      "age_days": 10672.67,
-      "registrar": "Nom-iq Ltd. dba COM LAUDE",
-      "risky_registrar": false
-    },
-    {
-      "domain": "w3spaces.com",
-      "brand": "irs",
-      "age_days": 2126.5266,
-      "registrar": "Amazon Registrar, Inc.",
-      "risky_registrar": false
-    },
-    {
-      "domain": "39bb0e97b6013ba3c59244a4ef911898-irs-gov.com",
-      "brand": "irs",
-      "age_days": 57.0173,
-      "registrar": "IONOS SE",
-      "risky_registrar": false
-    },
-    {
-      "domain": "africanparcel.com",
+      "domain": "parcel-deliver.com",
       "brand": "parcel",
-      "age_days": 1663.0445,
-      "registrar": "Dynadot Inc",
-      "risky_registrar": false
-    },
-    {
-      "domain": "baixingdajiudian.com",
-      "brand": "dhl",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
       "age_days": null,
       "registrar": null,
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "brightparcel.eu",
-      "brand": "parcel",
+      "domain": "reconfirm-redelivery.com",
+      "brand": "redeliver",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
       "age_days": null,
       "registrar": null,
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "clipass.sbs",
-      "brand": "ipass",
-      "age_days": null,
-      "registrar": null,
-      "risky_registrar": false
+      "domain": "finlab5-exercitationem89.sbs",
+      "brand": "citation",
+      "category": "gov",
+      "first_seen": "2026-10-17T15:37:36+00:00",
+      "registered_at": "2026-08-10T08:01:05Z",
+      "age_at_first_seen": 68.32,
+      "age_days": 68.5361,
+      "registrar": "NameCheap, Inc.",
+      "risky_registrar": false,
+      "error": null
     },
     {
-      "domain": "cmvwp-ie.org",
-      "brand": "dhl",
+      "domain": "com-trackigz.top",
+      "brand": "usps",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
       "age_days": null,
       "registrar": null,
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": "not_found"
     },
     {
-      "domain": "co.com",
-      "brand": "epass",
+      "domain": "com-trackhtw.top",
+      "brand": "usps",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
       "age_days": null,
       "registrar": null,
-      "risky_registrar": false
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "redeliver-payment.com",
+      "brand": "redeliver",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
+    },
+    {
+      "domain": "com-trackemr.top",
+      "brand": "usps",
+      "category": "delivery",
+      "first_seen": "2026-10-17T15:37:26+00:00",
+      "registered_at": null,
+      "age_at_first_seen": null,
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false,
+      "error": "not_found"
     }
-  ]
+  ],
+  "sample": {
+    "label_rows": 3914,
+    "registered_domains": 3053,
+    "shared_hosting_names_left_out": 459,
+    "junk_rows": 0
+  }
 }
