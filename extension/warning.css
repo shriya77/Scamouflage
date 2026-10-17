@@ -1,0 +1,127 @@
+/* warning.css: full-page red warning. Meant to be impossible to miss. */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: #b3261e;
+  color: #ffffff;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+}
+
+.card {
+  width: 100%;
+  max-width: 720px;
+}
+
+.icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #b3261e;
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 96px;
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+h1 {
+  font-size: 36px;
+  line-height: 1.2;
+  margin: 0 0 20px;
+}
+
+h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.domain-line {
+  font-size: 18px;
+  margin: 0 0 24px;
+}
+
+.domain {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 2px 8px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.matched-note {
+  display: block;
+  margin-top: 6px;
+  font-size: 15px;
+  opacity: 0.9;
+}
+
+.reasons ul {
+  margin: 0 0 20px;
+  padding-left: 24px;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.observed, .advice {
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin: 32px 0 24px;
+}
+
+button { font: inherit; cursor: pointer; }
+
+button.primary {
+  background: #ffffff;
+  color: #b3261e;
+  border: none;
+  border-radius: 8px;
+  padding: 16px 48px;
+  font-size: 22px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+button.primary:hover { background: #fce8e6; }
+
+button.primary:focus-visible,
+button.secondary:focus-visible {
+  outline: 3px solid #ffeb3b;
+  outline-offset: 3px;
+}
+
+button.secondary {
+  background: transparent;
+  color: #ffffff;
+  border: none;
+  padding: 4px;
+  font-size: 14px;
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+button.secondary:hover { opacity: 1; }
+
+.fineprint {
+  font-size: 13px;
+  opacity: 0.85;
+  line-height: 1.5;
+}

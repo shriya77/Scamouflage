@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DEMO - Fake toll payment page (harmless)</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; color: #1d2733; }
+    .demo-banner { background: #f9ab00; color: #1d2733; text-align: center; font-weight: 700;
+                   padding: 12px; font-size: 18px; letter-spacing: 0.5px; }
+    .top { background: #5b2a86; color: #fff; padding: 18px 24px; font-size: 22px; font-weight: 700; }
+    .card { max-width: 480px; margin: 32px auto; background: #fff; border-radius: 8px;
+            padding: 24px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 22px; margin-top: 0; }
+    .due { font-size: 28px; color: #c5221f; font-weight: 700; }
+    label { display: block; margin-top: 14px; font-weight: 600; }
+    input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+    button { margin-top: 20px; width: 100%; padding: 12px; background: #5b2a86; color: #fff;
+             border: none; border-radius: 6px; font-size: 16px; }
+    .note { font-size: 13px; color: #5f6368; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="demo-banner">DEMO PAGE &middot; NOT A REAL SITE &middot; SCAMOUFLAGE TEST</div>
+  <div class="top">E-ZPass Toll Services (DEMO)</div>
+
+  <div class="card">
+    <h1>Unpaid toll notice (DEMO)</h1>
+    <p>Our records show an unpaid toll balance. Pay within 24 hours to avoid a $50 late fee.</p>
+    <p class="due">$4.35 due</p>
+
+    <!-- The form goes nowhere: submitting does nothing and nothing is sent. -->
+    <form onsubmit="return false;">
+      <label>Card number (DEMO, do not type real data)
+        <input type="text" placeholder="DEMO ONLY" autocomplete="off" disabled>
+      </label>
+      <label>Expiry (DEMO)
+        <input type="text" placeholder="MM/YY" autocomplete="off" disabled>
+      </label>
+      <button type="button" disabled>Pay now (DEMO, disabled)</button>
+    </form>
+
+    <p class="note">
+      This is a harmless test page for the Scamouflage browser extension. It is
+      served from your own computer by <code>python -m http.server</code>. With
+      demo mode on, opening it as
+      <code>http://ezpass.com-demo.localhost:5500/</code> should show the red
+      warning before you ever see this page.
+    </p>
+  </div>
+</body>
+</html>

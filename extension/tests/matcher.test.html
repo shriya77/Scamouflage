@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Scamouflage matcher tests</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 24px; }
+    #summary { font-size: 20px; font-weight: 700; margin-bottom: 16px; }
+    .pass { color: #188038; }
+    .fail { color: #d93025; }
+    li { margin: 2px 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+    .error { display: block; margin-left: 20px; color: #a50e0e; }
+  </style>
+</head>
+<body>
+  <h1>Scamouflage matcher tests</h1>
+  <p>
+    Open this file in Chrome, either directly (file://) or from the loaded
+    extension at chrome-extension://&lt;extension id&gt;/tests/matcher.test.html.
+  </p>
+  <div id="summary">Running…</div>
+  <ul id="results"></ul>
+
+  <script src="../lib/nacl-fast.min.js"></script>
+  <script src="../matcher.js"></script>
+  <script src="matcher.test.js"></script>
+  <script src="matcher.test.runner.js"></script>
+</body>
+</html>
