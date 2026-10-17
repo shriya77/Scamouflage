@@ -167,9 +167,15 @@ class KnownList:
   labels. The PSL is only consulted when some parent of the name is listed (LRU cached).
 - **Guards:** drop listed names that are a public suffix (107 rows), official or under an official
   site (2), or also in `negatives` (0); rule (b) never fires through a negative's registered domain
-  (1 host). **Gap:** `feeds.py negatives` samples 300k of Tranco's 1M and leaves out every name
-  already on a scam list, so a poisoned big site (e.g. `nflxvideo.net`, listed by phishing_database)
-  is not stopped. Needs an unfiltered top-N Tranco table to guard against.
+  (1 host). `both_lists` stops nothing because `feeds.py negatives` leaves out every name already
+  on a scam list, so a poisoned big site (e.g. `nflxvideo.net`, listed by phishing_database) got
+  through. **tranco_top guard:** if labels.db has a `tranco_top` table (Tranco top 100k by rank,
+  NOT minus the scam lists; proposed `feeds.py tranco`, pending), drop a listed name whose host or
+  registered domain is in it. No table = guard off. Measured on a scratch copy of the VM DB
+  (2026-10-17): removes 63,646 rows / 59,202 hosts (113 because the host itself is a top site,
+  59,089 because its registered domain is: mostly tenants of hosting not on the private PSL, e.g.
+  weebly.com, 000webhostapp.com; 145 of them branded). Bench: 54 → 50 hits, only the two
+  `*.nflxvideo.net` names gone. Load 2.6 → 4.0 s, RSS +68.5 → +73.8 MB.
 - **Refresh column:** `rowid` (not `last_seen`: feeds.py rewrites `last_seen` on every row each
   pull). Full reload if rows were deleted, the file replaced, or `official.txt` changed.
 - **Measured on the VM** (2026-10-17, 697,829 rows → 544,038 hosts): load 2.8 s, +68.5 MB RSS per
