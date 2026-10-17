@@ -50,20 +50,37 @@ _PRIV = None
 _KEY_ID = None
 
 
-def sign(alert: dict) -> dict:
+def _key():
     global _PRIV, _KEY_ID
     if _PRIV is None:
         _PRIV, _KEY_ID = _load()
+    return _PRIV, _KEY_ID
+
+
+def signing_key_id() -> str:
+    return _key()[1]
+
+
+def sign_bytes(data: bytes) -> tuple:
+    """-> (base64 Ed25519 signature over data, key_id). Same key as sign()."""
+    priv, kid = _key()
+    return base64.b64encode(priv.sign(data)).decode(), kid
+
+
+def sign(alert: dict) -> dict:
     out = dict(alert)
-    out["sig"] = base64.b64encode(_PRIV.sign(canonical(alert))).decode()
-    out["key_id"] = _KEY_ID
+    out["sig"], out["key_id"] = sign_bytes(canonical(alert))
     return out
 
 
-def verify_sig(alert: dict, pub: Ed25519PublicKey) -> bool:
+def verify_bytes(data: bytes, sig_b64: str, pub: Ed25519PublicKey) -> bool:
     from cryptography.exceptions import InvalidSignature
     try:
-        pub.verify(base64.b64decode(alert.get("sig") or ""), canonical(alert))
+        pub.verify(base64.b64decode(sig_b64 or ""), data)
         return True
     except (InvalidSignature, ValueError):
         return False
+
+
+def verify_sig(alert: dict, pub: Ed25519PublicKey) -> bool:
+    return verify_bytes(canonical(alert), alert.get("sig"), pub)
