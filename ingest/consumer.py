@@ -149,8 +149,11 @@ def init_engine_worker(cfg):
     _engine_state(cfg)
 
 
-def engine_ping(cfg):
-    return dict(_engine_state(cfg)["info"], rss_mb=rss_mb())
+def engine_ping(cfg, hold_s=0.0):
+    """Startup check. hold_s keeps this worker busy so the other pings reach the other workers."""
+    info = dict(_engine_state(cfg)["info"], rss_mb=rss_mb())
+    time.sleep(hold_s)
+    return info
 
 
 def process_batch_engine(records, cfg):
@@ -191,6 +194,8 @@ def process_batch_engine(records, cfg):
             if hv % NAME_SAMPLE == 0:
                 hashes.append(hv)
             if d["verdict"] == "safe":
+                if d["stage"] == -1:
+                    c["allowlisted"] += 1
                 continue
             c["stage0_hits" if d["verdict"] == "scam" else d["verdict"]] += 1
             ctx = {"cert_id": rec["id"], "domains": rec["domains"], "seen_at": rec["seen_at"],
@@ -414,6 +419,7 @@ class EnginePath:
             "alerts_by_category": dict(wr.by_category),
             "alerts_deduped": wr.c["deduped"] + c["skipped_alerted"],
             "official_blocked": wr.c["official_blocked"],
+            "allowlisted_names": c["allowlisted"],
             "engine_ms_per_cert": round(1000 * st.score_s / n, 3),
             "max_engine_ms_per_cert": round(self.max_engine_ms, 2),
             "proc_lag_s": None if st.proc_lag_s is None else round(st.proc_lag_s, 2),
@@ -456,7 +462,7 @@ async def run(args):
 
     if eng:  # load every engine before reading the stream, and say what's real
         if pool:
-            infos = await asyncio.gather(*[loop.run_in_executor(pool, engine_ping, eng.cfg)
+            infos = await asyncio.gather(*[loop.run_in_executor(pool, engine_ping, eng.cfg, 1.5)
                                            for _ in range(args.workers)])
         else:
             init_engine_worker(eng.cfg)
@@ -466,7 +472,7 @@ async def run(args):
         s = eng.status()
         print(f"[engine] ready: stage0={s['stage0']} stage1={s['stage1']} ({s['stage1_version']}) "
               f"t_high={s['t_high']} t_low={s['t_low']} stage2={s['stage2']} stage3={s['stage3']} "
-              f"workers={len(eng.workers)}", flush=True)
+              f"workers reporting {len(eng.workers)} of {max(args.workers, 1)}", flush=True)
         stubs = [k for k in ("stage0", "stage1", "stage2", "stage3") if s[k] != "real"]
         if stubs:
             print(f"[engine] WARNING: running WITHOUT {', '.join(stubs)} (stub); see the errors above",

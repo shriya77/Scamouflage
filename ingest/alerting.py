@@ -372,6 +372,8 @@ class Stage3Queue:
         self.examples[outcome].append({
             "host": d["host"], "score": d["score"], "age_days": final.get("age_days"),
             "registrar": final.get("registrar"), "error": why})
+        log.info("stage3 %s: %s (%s, score %.3f) age_days=%s registrar=%s error=%s", outcome, d["host"],
+                 before, d["score"], final.get("age_days"), final.get("registrar"), why)
         ctx = dict(ctx, s3_error=why, t_high=self.t_high)
         try:
             self.on_final(final, ctx)
