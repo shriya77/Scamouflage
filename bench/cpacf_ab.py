@@ -1,6 +1,7 @@
 """CPACF on vs. off, measured on OUR real workload. Writes data/hardware.json.
 
     python -m bench.cpacf_ab ~/tolltrap/data/recordings/ct-20261017-152933.jsonl.gz
+    python -m bench.cpacf_ab --protkeys-only    # only refresh "protected_keys" in hardware.json
 
 How "off" works: OpenSSL reads the OPENSSL_s390xcap environment variable at
 start-up. We run the exact same Python code twice in fresh processes: once
@@ -16,11 +17,13 @@ Workloads (all real):
 import argparse
 import base64
 import collections
+import glob
 import gzip
 import hashlib
 import json
 import os
 import platform
+import shlex
 import subprocess
 import sys
 import time
@@ -163,15 +166,65 @@ def ratio(a, b):
     return round(a / b, 2) if a and b else None
 
 
+PROTKEY_DIR = "/sys/devices/virtual/misc/pkey/protkey"
+
+
+def protected_keys():
+    """Which protkey_aes_* sysfs files exist and how many bytes one read returns.
+
+    Each read makes the kernel create a fresh AES key wrapped by the firmware
+    (PCKMO), so we also record the PCKMO counter deltas. The bytes go from dd
+    straight into `wc -c`; they never reach Python, a log or a file.
+    """
+    from bench.counters import parse
+    before = parse(cpacf_counters() or "")
+    files = {}
+    for path in sorted(glob.glob(os.path.join(PROTKEY_DIR, "protkey_aes_*"))):
+        # one whole-attribute read: the kernel rejects short reads (bs=80 returns 0 for the XTS files)
+        cmd = f"set -o pipefail; sudo -n dd if={shlex.quote(path)} bs=4096 count=1 2>/dev/null | wc -c"
+        try:
+            r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=10)
+            files[os.path.basename(path)] = int(r.stdout.strip()) if r.returncode == 0 else None
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            files[os.path.basename(path)] = None
+    after = parse(cpacf_counters() or "")
+    pckmo = {k: after[k] - before.get(k, 0) for k in sorted(after)
+             if k.startswith("PCKMO") and after[k] - before.get(k, 0) > 0}
+    return {"generated_at": time.time(), "dir": PROTKEY_DIR, "bytes": files,
+            "pckmo_delta": pckmo if before and after else None,
+            "note": "Byte lengths of one read only; key bytes are never stored. None = read failed."}
+
+
+def protkeys_only(path):
+    try:
+        with open(path) as f:
+            report = json.load(f)
+    except (OSError, ValueError) as e:
+        sys.exit(f"cannot read {path} ({e}); run the full benchmark first")
+    report["protected_keys"] = protected_keys()
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(report, f, indent=2)
+    os.replace(tmp, path)
+    print(json.dumps(report["protected_keys"], indent=2))
+    print(f"[bench] updated protected_keys in {path}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("file", help="a recording WITH certificate DER (not --strip-der)")
+    p.add_argument("file", nargs="?", help="a recording WITH certificate DER (not --strip-der)")
     p.add_argument("--n", type=int, default=3000, help="real cert/issuer pairs to use")
     p.add_argument("--seconds", type=float, default=3.0, help="time per measurement")
     p.add_argument("--off-mask", default=OFF_MASK_DEFAULT)
     p.add_argument("--out", default="data/hardware.json")
+    p.add_argument("--protkeys-only", action="store_true",
+                   help="only refresh the protected_keys field of --out (no benchmark)")
     p.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = p.parse_args()
+    if args.protkeys_only:
+        return protkeys_only(args.out)
+    if not args.file:
+        p.error("the recording file is required (unless --protkeys-only)")
     if args.worker:
         return worker(args)
 
@@ -229,6 +282,7 @@ def main():
         "cpacfstats_after": after,
         "note": "Same code and data run twice in fresh processes; only OPENSSL_s390xcap differs. "
                 "RSA is not CPACF-accelerated, so RSA-issued certs show ~1x by design.",
+        "protected_keys": protected_keys(),
     }
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     tmp = args.out + ".tmp"

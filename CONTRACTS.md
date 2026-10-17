@@ -74,7 +74,7 @@ seen(domain PK, first_cert_seen, cert_id)                    -- written by consu
 | `stats.json` | A | every 1 s | `ts, uptime_s, msgs_total, certs_total, dupes_total, precert_total, cert_total, processed_total, alerts_total, msgs_per_s, certs_per_s, verify{}, avg_verify_ms, avg_score_ms, queue_depth, dropped_total, lag_s, top_logs{}, last_alert{}` |
 | `results.json` | C | once per training run | model vs baselines: precision/recall at 1 FP per 10k, PR curve points, time-split info |
 | `leadtime.json` | B | on demand | per-domain lead times + median/p90 vs each feed |
-| `hardware.json` | D | on demand | CPACF A/B numbers (on vs `OPENSSL_s390xcap` off), PAI counter deltas |
+| `hardware.json` | D | on demand | CPACF A/B numbers (on vs `OPENSSL_s390xcap` off), PAI counter deltas, `protected_keys{dir, bytes{protkey_aes_*: int}, pckmo_delta{}}` (file names + byte lengths only, never key bytes) |
 | `cpacf_live.json` | D | every 2 s (`bench.counters`, tmux `cpacf`) | `ts, interval_s, available, totals{name: int}, rates_per_s{name: float}, groups{ecdsa_verify_per_s, eddsa_sign_per_s, eddsa_verify_per_s, sha_per_s, aes_per_s, trng_per_s}, error` (see below) |
 | `alert_pubkey.pem` | D | once (`alerts.keygen`) | PEM public key for the alert signatures (`keys/alert_ed25519.pem`). Safe to publish. |
 
