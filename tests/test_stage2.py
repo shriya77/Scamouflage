@@ -31,12 +31,12 @@ def test_scam_fixture_kit_certificate():
     assert f["n_names"] == 4                      # "*.ezpass..." and "ezpass..." count once
     assert f["brand_names_on_cert"] == 4 and f["distinct_brands_on_cert"] == 4
     assert f["fake_pattern_names_on_cert"] == 4 and f["risky_tld_names_on_cert"] == 4
-    assert f["wildcard"] == 1 and f["wildcard_brand"] == 1 and f["official_on_cert"] == 0
+    assert f["kit_names_with_brand"] == 4 and f["wildcard"] == 1 and f["official_on_cert"] == 0
     s2 = Stage2()
     for h in ("ezpass.com-xk2.win", "sunpass.com-xk2.win", "*.ezpass.com-xk2.win"):
         e = s2.explain(h, leaf)
-        assert e["boost"] == 0.55, (h, e)          # 0.25 + 0.15 + 0.10 + 0.05
-        assert any("lookalikes" in r for r in e["reasons"])
+        assert e["boost"] == 0.55, (h, e)          # 0.30 + 0.15 (4 brands) + 0.10 (kit names)
+        assert any("different brands" in r for r in e["reasons"])
 
 
 def test_normal_fixture_no_boost():
@@ -71,30 +71,62 @@ def test_single_brand_name_among_unrelated_names():
     assert Stage2().boost("ezpass-info.test", leaf) == 0.0
 
 
-def test_two_lookalikes():
+def test_two_different_brands():
     leaf = cert("ezpass-pay.test", "sunpass-pay.test")
     e = Stage2().explain("ezpass-pay.test", leaf)
-    assert e["boost"] == 0.25, e
+    assert e["boost"] == 0.30, e
 
 
-def test_brand_names_on_three_registered_domains():
+def test_one_brand_many_subdomains_is_not_a_kit():
+    # one real site with its brand in the name and many subdomains (seen live: paturnpike.co)
+    leaf = cert(*[f"{s}.turnpike-info.test" for s in ("www", "app", "api", "mail", "admin", "blog")])
+    f = cert_features(leaf)
+    assert f["brand_names_on_cert"] == 6 and f["distinct_brands_on_cert"] == 1
+    assert Stage2().boost("app.turnpike-info.test", leaf) == 0.0
+
+
+def test_three_brands_on_three_registered_domains():
     leaf = cert("ezpass-pay.test", "sunpass-pay.test", "txtag-pay.test")
     f = cert_features(leaf)
     assert f["brand_registered_domains"] == 3 and f["n_registered_domains"] == 3
-    assert Stage2().boost("txtag-pay.test", leaf) == 0.40   # 0.25 + 0.15
+    assert Stage2().boost("txtag-pay.test", leaf) == 0.60   # 0.30 + 0.15 + 0.15
 
 
-def test_misspelled_brand_counts_as_lookalike():
+def test_one_brand_on_three_registered_domains():
+    leaf = cert("usps-track-a.test", "usps-track-b.test", "usps-track-c.test")
+    assert Stage2().boost("usps-track-a.test", leaf) == 0.15
+
+
+def test_one_name_with_overlapping_brand_words_is_one_brand():
+    # "paytolls" contains paytoll, tolls and toll: still ONE brand, so no kit points
+    leaf = cert("paytolls.test", "www.paytolls.test")
+    assert cert_features(leaf)["distinct_brands_on_cert"] == 1
+    assert Stage2().boost("paytolls.test", leaf) == 0.0
+
+
+def test_misspellings_do_not_count_at_certificate_level():
+    # live certs: tools ~ tolls, class ~ ipass, vercel ~ parcel. Stage 1 still sees typos.
     leaf = cert("ezpas-toll.test", "sunpas-help.test")
-    assert cert_features(leaf)["brand_names_on_cert"] == 2
-    assert Stage2().boost("ezpas-toll.test", leaf) == 0.25
-
-
-def test_fake_pattern_names():
-    leaf = cert("pay.com-abc.test", "help.com-abc.test")      # no brand word, two ".com-" names
     f = cert_features(leaf)
-    assert f["fake_pattern_names_on_cert"] == 2 and f["brand_names_on_cert"] == 0
-    assert Stage2().boost("pay.com-abc.test", leaf) == 0.10
+    assert f["brand_names_on_cert"] == 1                      # only the exact word "toll"
+    assert Stage2().boost("ezpas-toll.test", leaf) == 0.0
+    vercel = cert("aaa.vercel.app", "bbb.vercel.app", "ccc.vercel.app")
+    assert Stage2().boost("aaa.vercel.app", vercel) == 0.0
+
+
+def test_kit_names_need_a_brand_on_the_certificate():
+    leaf = cert("pay.com-abc.test", "help.com-abc.test")      # two ".com-" names, no brand word
+    f = cert_features(leaf)
+    assert f["fake_pattern_names_on_cert"] == 2 and f["kit_names_with_brand"] == 0
+    assert Stage2().boost("pay.com-abc.test", leaf) == 0.0
+    leaf = cert("ezpass.com-abc.test", "help.com-abc.test")
+    assert Stage2().boost("ezpass.com-abc.test", leaf) == 0.10
+
+
+def test_cloud_region_names_are_not_kit_names():
+    # features.fake_pattern also matches "us-"; Stage 2's kit pattern must not
+    leaf = cert("abc.us-west-2.aws.example", "abc.us-east-1.aws.example", "usps-x.test")
+    assert cert_features(leaf)["fake_pattern_names_on_cert"] == 0
 
 
 def test_cap_never_above_max_and_never_negative():
@@ -102,7 +134,7 @@ def test_cap_never_above_max_and_never_negative():
     names += [f"{b}-toll.test" for b in ("ezpass", "sunpass", "txtag")]
     leaf = cert(*names)
     b, reasons = points(cert_features(leaf))
-    assert b == MAX_BOOST == 0.6 and len(reasons) == 5      # 0.70 of points, capped
+    assert b == MAX_BOOST == 0.6 and len(reasons) == 4      # 0.70 of points, capped
     for leaf in (fixture("leaf_cert_normal.json"), cert("a.test"), cert()):
         assert 0.0 <= Stage2().boost("a.test", leaf) <= MAX_BOOST
 
