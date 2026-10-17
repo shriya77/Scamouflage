@@ -31,7 +31,8 @@ Caching & Rate Limiting:
       registered_at on every cache hit, so it never goes stale.
     - Rate limit: 1 request/second to rdap.org by default (spec max is 2/s; $SCAM_RDAP_INTERVAL),
       per process (Stage 3 runs in one worker)
-    - On HTTP 429: every caller pauses (Retry-After, capped at 30 s, else 10 s), then one retry
+    - On HTTP 429: wait (Retry-After, capped at 5 s, else 2 s) and retry once; if refused again,
+      that TLD's registry is left alone for 60 s, doubling up to 15 min (see _tld_refused)
 """
 import argparse
 import collections
@@ -113,8 +114,7 @@ def is_risky_registrar(name: str | None) -> bool:
 # Rate limiting (max 2 requests/second)
 # ---------------------------------------------------------------------------
 class RateLimiter:
-    """Enforces at least min_interval seconds between consecutive requests, and a shared pause
-    after a 429 (every caller waits, not only the one that was refused)."""
+    """Enforces at least min_interval seconds between consecutive requests to rdap.org."""
     def __init__(self, min_interval: float = 1.0):
         self.min_interval = min_interval
         self._next = 0.0
@@ -127,15 +127,38 @@ class RateLimiter:
                 time.sleep(delay)
             self._next = time.monotonic() + self.min_interval
 
-    def penalize(self, seconds: float):
-        """After a 429: nobody asks again for `seconds`."""
-        with self._lock:
-            self._next = max(self._next, time.monotonic() + seconds)
 
 
 # 1 request/second: the spec allows at most 2/s, but at 2/s rdap.org answered 429 to a quarter
 # of 150 lookups (VM, 2026-10-17).
 _RATE_LIMITER = RateLimiter(min_interval=float(os.environ.get("SCAM_RDAP_INTERVAL", "1.0")))
+
+# Per-TLD cool-down. rdap.org redirects to each registry's own RDAP server, and some refuse hard:
+# the .top registry (rdap.zdnsgtld.com) answered 429 to single requests 3 s apart (VM,
+# 2026-10-17). After a 429 that survives the retry, that TLD is skipped (error "rate_limited",
+# no request) for 60 s, doubling up to 15 min; one success resets it. Other TLDs are unaffected.
+TLD_COOLDOWN_START, TLD_COOLDOWN_MAX = 60.0, 900.0
+_TLD_BLOCKED: dict[str, float] = {}   # tld -> monotonic time it may be asked again
+_TLD_STRIKES: dict[str, int] = {}
+_TLD_LOCK = threading.Lock()
+
+
+def _tld_blocked(tld: str) -> bool:
+    with _TLD_LOCK:
+        return time.monotonic() < _TLD_BLOCKED.get(tld, 0.0)
+
+
+def _tld_refused(tld: str) -> None:
+    with _TLD_LOCK:
+        n = _TLD_STRIKES.get(tld, 0)
+        _TLD_STRIKES[tld] = n + 1
+        _TLD_BLOCKED[tld] = time.monotonic() + min(TLD_COOLDOWN_MAX, TLD_COOLDOWN_START * 2 ** n)
+
+
+def _tld_answered(tld: str) -> None:
+    with _TLD_LOCK:
+        _TLD_STRIKES.pop(tld, None)
+        _TLD_BLOCKED.pop(tld, None)
 
 
 # ---------------------------------------------------------------------------
@@ -379,11 +402,12 @@ def _extract_registrar(entities: list | None) -> str | None:
 
 
 def _retry_after(resp) -> float:
-    """Seconds to pause after a 429: the Retry-After header (capped at 30 s), else 10 s."""
+    """Seconds to wait before the one retry after a 429: Retry-After (capped at 5 s), else 2 s.
+    Longer refusals are handled by the per-TLD cool-down, not by blocking this caller."""
     try:
-        return min(30.0, max(0.0, float(resp.headers.get("Retry-After"))))
+        return min(5.0, max(0.0, float(resp.headers.get("Retry-After"))))
     except Exception:
-        return 10.0
+        return 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +459,11 @@ def _verify(host: str, timeout: float) -> dict:
     if cached is not None:
         return cached
 
+    tld = reg_domain.rsplit(".", 1)[-1]
+    if _tld_blocked(tld):  # this registry refused us just now: don't hammer it
+        result["error"] = "rate_limited"
+        return result
+
     # Query rdap.org
     url = f"https://rdap.org/domain/{quote(reg_domain)}"
     headers = {"User-Agent": "Scamouflage/1.0 (+https://github.com/shriya77/Scamouflage)"}
@@ -443,6 +472,8 @@ def _verify(host: str, timeout: float) -> dict:
         _RATE_LIMITER.wait()
         try:
             resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            if resp.status_code in (200, 404):
+                _tld_answered(tld)
             if resp.status_code == 200:
                 try:
                     data = resp.json()
@@ -478,8 +509,9 @@ def _verify(host: str, timeout: float) -> dict:
                 break
             elif resp.status_code == 429:
                 if attempt == 0:
-                    _RATE_LIMITER.penalize(_retry_after(resp))   # the retry waits in wait()
+                    time.sleep(_retry_after(resp))
                     continue
+                _tld_refused(tld)
                 result["error"] = "rate_limited"
                 break
             else:

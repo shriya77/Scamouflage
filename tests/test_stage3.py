@@ -29,6 +29,8 @@ def isolated(fn):
         d = tempfile.mkdtemp(prefix="stage3-test-")
         stage3.set_cache_path(os.path.join(d, "rdap_cache.db"))
         stage3._RATE_LIMITER._next = 0.0
+        stage3._TLD_BLOCKED.clear()
+        stage3._TLD_STRIKES.clear()
         try:
             fn()
         finally:
@@ -165,15 +167,29 @@ def test_rate_limited_then_answer():
     assert res["ok"] is True and res["error"] is None
 
 
-def test_rate_limiter_spacing_and_429_pause():
+def test_rate_limiter_spacing():
     rl = stage3.RateLimiter(min_interval=0.05)
     t0 = time.monotonic()
     rl.wait(); rl.wait(); rl.wait()
     assert time.monotonic() - t0 >= 0.1                 # 3 calls, 2 gaps
-    rl.penalize(0.2)
-    t1 = time.monotonic()
-    rl.wait()
-    assert time.monotonic() - t1 >= 0.19                # everyone waits after a 429
+
+
+@isolated
+def test_refusing_registry_is_cooled_down_per_tld():
+    # the .top registry refuses repeatedly: stop asking it for a while, keep asking others
+    with mock.patch("requests.get", return_value=status(429, {"Retry-After": "0"})) as get:
+        assert verify("first.top")["error"] == "rate_limited"
+        assert get.call_count == 2                       # tried, retried once
+        assert verify("second.top")["error"] == "rate_limited"
+        assert get.call_count == 2                       # cooled down: no request at all
+    with mock.patch("requests.get", return_value=rdap_ok()) as get:
+        assert verify("other-registry.test")["ok"] is True   # other TLDs unaffected
+        assert verify("second.top")["error"] == "rate_limited"
+        assert get.call_count == 1
+    stage3._TLD_BLOCKED["top"] = 0.0                     # cool-down over
+    with mock.patch("requests.get", return_value=rdap_ok()) as get:
+        assert verify("second.top")["ok"] is True
+    assert "top" not in stage3._TLD_STRIKES              # success resets it
 
 
 @isolated
