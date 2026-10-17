@@ -72,7 +72,15 @@ log = logging.getLogger("tolltrap.blocklist")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
-DB_PATH = os.environ.get("SCAM_DB", os.path.join("data", "scamouflage.db"))
+# Same lookup as api/server.py: SCAM_DB, else DATA_DIR/scamouflage.db, else the
+# repo's data/ folder. Resolved from the repo, not the current directory, so
+# the API and this route always read the same database.
+DATA_DIR = os.environ.get("DATA_DIR") or (
+    os.path.dirname(os.environ["SCAM_DB"]) if os.environ.get("SCAM_DB") else os.path.join(REPO, "data"))
+DB_PATH = os.environ.get("SCAM_DB") or os.path.join(DATA_DIR, "scamouflage.db")
+# Training stats written by model/train_stage1.py; shown in the extension popup.
+THRESHOLDS_FILES = [os.path.join(DATA_DIR, "models", "thresholds.json"),
+                    os.path.join(REPO, "reports", "thresholds.json")]
 THRESHOLD = float(os.environ.get("TOLLTRAP_BLOCKLIST_THRESHOLD", "0.85"))
 KEY_ID = os.environ.get("TOLLTRAP_KEY_ID", "scamouflage-vm-1")
 SIGNING_KEY_PATH = os.environ.get("TOLLTRAP_SIGNING_KEY") or os.path.join(
@@ -252,15 +260,34 @@ def official_domains() -> set[str]:
     return out
 
 
+def model_info() -> dict | None:
+    """Model version and training-set size from thresholds.json, or None if
+    the model hasn't been trained yet. Only these four fields are published."""
+    for path in THRESHOLDS_FILES:
+        try:
+            with open(path, encoding="utf-8") as f:
+                th = json.load(f)
+        except (OSError, ValueError):
+            continue
+        return {
+            "version": th.get("model_version"),
+            "trained_at": th.get("trained_at"),
+            "n_train": th.get("n_train"),
+            "n_val": th.get("n_val"),
+        }
+    return None
+
+
 def build_payload(rows, allow_domains: set[str], no_wildcard: set[str],
                   threshold: float = THRESHOLD, source: str = LIST_SOURCE,
-                  now: float | None = None) -> dict:
+                  now: float | None = None, model: dict | None = None) -> dict:
     """Pure function: alert rows -> payload dict (ready to be signed).
 
     rows: iterable of (domain, score, reasons_json, seen_at).
     """
     allow_hashes = {sha256_hex(d) for d in allow_domains}
     entries: dict[str, dict] = {}
+    flagged_hostnames: set[str] = set()
     for domain, score, reasons_raw, seen_at in rows:
         if score is None or float(score) < threshold:
             continue
@@ -272,7 +299,10 @@ def build_payload(rows, allow_domains: set[str], no_wildcard: set[str],
             continue
         reasons = _parse_reasons(reasons_raw)
         observed = iso_utc(seen_at)
-        for name, wildcard in targets_for(hostname, no_wildcard):
+        targets = targets_for(hostname, no_wildcard)
+        if targets:
+            flagged_hostnames.add(hostname)
+        for name, wildcard in targets:
             _merge(entries, make_entry(name, wildcard, score, reasons, observed, source))
 
     return {
@@ -282,6 +312,9 @@ def build_payload(rows, allow_domains: set[str], no_wildcard: set[str],
         # Sorted by hash so the order reveals nothing about when domains were added.
         "entries": [entries[h] for h in sorted(entries)],
         "allowlist": sorted(allow_hashes),
+        # Shown in the popup: "Compared against N flagged sites", "trained on N".
+        "flagged_hostnames": len(flagged_hostnames),
+        "model": model,
     }
 
 
@@ -364,7 +397,8 @@ def build_signed_body() -> bytes:
     """Blocking work (DB read + signing). Runs in a thread, not the event loop."""
     key = _get_key()
     rows = _read_alert_rows(DB_PATH)
-    payload = build_payload(rows, official_domains(), read_domain_file(NO_WILDCARD_FILE))
+    payload = build_payload(rows, official_domains(), read_domain_file(NO_WILDCARD_FILE),
+                            model=model_info())
     envelope = sign_payload(payload, key, KEY_ID)
     log.info("blocklist rebuilt: %d entries from %d alert rows (source=%s)",
              len(payload["entries"]), len(rows), LIST_SOURCE)

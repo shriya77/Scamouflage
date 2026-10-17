@@ -1,6 +1,6 @@
 # Scamouflage browser extension
 
-Scamouflage is a Chrome extension (Manifest V3). It downloads TollTrap's signed
+Scamouflage is a Chrome extension (Manifest V3). It downloads Scamouflage's signed
 list of flagged toll, delivery, USPS, DMV, and IRS scam domains, and shows a
 full-page red warning before you use a flagged site.
 
@@ -116,7 +116,8 @@ Optional environment variables:
 |---|---|---|
 | `TOLLTRAP_SIGNING_KEY` | `keys/blocklist_ed25519.pem` | path to the Ed25519 private key (never logged) |
 | `TOLLTRAP_KEY_ID` | `scamouflage-vm-1` | `key_id` sent in the envelope; must be in `config.js` `LIVE_KEYS` |
-| `SCAM_DB` | `data/scamouflage.db` | SQLite file with the `alerts` table |
+| `SCAM_DB` | `$DATA_DIR/scamouflage.db` | SQLite file with the `alerts` table (same lookup as `api/server.py`) |
+| `DATA_DIR` | the repo's `data/` folder | also where `models/thresholds.json` (training stats for the popup) is read from |
 | `TOLLTRAP_BLOCKLIST_THRESHOLD` | `0.85` | minimum score to include |
 | `TOLLTRAP_LIST_SOURCE` | `live` (`replay` if the DB name contains "replay") | the `source` field shown in the popup |
 | `TOLLTRAP_BLOCKLIST_CACHE_S` | `60` | seconds to reuse a signed list before rebuilding |
@@ -156,8 +157,9 @@ reaches the VM.
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and pick the `extension/` folder.
-4. Pin Scamouflage from the puzzle-piece menu. Click it: the popup shows the
-   number of entries, the last sync time, and the source.
+4. Pin Scamouflage from the puzzle-piece menu. Click it: the popup shows how
+   many flagged sites you're compared against, how many labeled domains the
+   ML model was trained on (from `thresholds.json`), the last sync time, and the source.
 
 After editing any extension file, click the reload icon on the extension's card.
 

@@ -57,11 +57,17 @@
     detail.textContent = '';
     reasonsEl.textContent = '';
     reasonsEl.hidden = true;
+    $('score-meter').hidden = true;
 
     switch (check.status) {
       case 'flagged': {
         const entry = check.entry || {};
-        title.textContent = 'Flagged as a likely scam (score ' + M.formatScore(entry.score) + ')';
+        title.textContent = 'Flagged as a likely scam';
+        if (typeof entry.score === 'number') {
+          $('score-fill').style.width = Math.round(Math.min(1, Math.max(0, entry.score)) * 100) + '%';
+          $('score-label').textContent = 'Score ' + M.formatScore(entry.score);
+          $('score-meter').hidden = false;
+        }
         if (check.matched && check.matched !== check.hostname) {
           detail.textContent = 'Matched through ' + check.matched + '.';
         }
@@ -96,9 +102,38 @@
   }
 
   // ---- Step 3: render list info ----------------------------------------------
+  function formatCount(n) {
+    return Number(n).toLocaleString();
+  }
+
   function renderList(list) {
     $('demo-pill').hidden = !list.demoMode;
-    $('entry-count').textContent = list.loaded ? String(list.entryCount) : '–';
+    $('live-pill').hidden = list.demoMode || !list.loaded;
+
+    // "Compared against N flagged sites". Older lists don't report the site
+    // count, so fall back to the number of hashed entries.
+    if (!list.loaded) {
+      $('entry-count').textContent = '–';
+      $('entry-count-sub').textContent = 'no list loaded';
+    } else if (list.flaggedHostnames != null) {
+      $('entry-count').textContent = formatCount(list.flaggedHostnames);
+      $('entry-count-sub').textContent = list.flaggedHostnames === 1 ? 'flagged site' : 'flagged sites';
+    } else {
+      $('entry-count').textContent = formatCount(list.entryCount);
+      $('entry-count-sub').textContent = 'list entries';
+    }
+
+    // "ML model trained on N labeled domains", from the signed list.
+    const model = list.model;
+    if (model && model.n_train != null) {
+      $('model-train').textContent = formatCount(model.n_train);
+      $('model-train-sub').textContent = 'labeled domains' +
+        (model.n_val != null ? ' (+' + formatCount(model.n_val) + ' to validate)' : '');
+    } else {
+      $('model-train').textContent = '–';
+      $('model-train-sub').textContent = list.demoMode ? 'demo list' : 'not reported yet';
+    }
+
     $('last-sync').textContent = list.demoMode ? 'bundled demo list' : timeAgo(list.lastSuccessAt);
     $('list-source').textContent = list.loaded ? (list.source || 'live') : 'none';
 

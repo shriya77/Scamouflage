@@ -2,58 +2,83 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scamouflage settings</title>
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-           max-width: 640px; margin: 32px auto; padding: 0 16px; color: #202124; font-size: 14px; }
-    h1 { font-size: 22px; }
-    h2 { font-size: 16px; margin-top: 32px; }
-    label { display: block; font-weight: 600; margin: 16px 0 4px; }
-    input[type=url] { width: 100%; padding: 8px; font: inherit; border: 1px solid #dadce0; border-radius: 6px; }
-    .hint { color: #5f6368; font-size: 12px; margin: 4px 0 0; }
-    .toggle { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-top: 16px; }
-    button { font: inherit; background: #1a73e8; color: #fff; border: none; border-radius: 6px;
-             padding: 8px 16px; cursor: pointer; margin-top: 20px; }
-    button.secondary { background: #f1f3f4; color: #202124; }
-    #status { margin-left: 12px; }
-    .ok { color: #188038; }
-    .err { color: #d93025; }
-    #allowed { padding-left: 20px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  </style>
+  <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <h1>Scamouflage settings</h1>
+  <header class="hero">
+    <img class="hero-logo" src="icons/logo.png" alt="Scamouflage">
+    <p class="hero-tag">Warns you before you open a likely toll, delivery, DMV, or IRS scam site.</p>
+  </header>
 
-  <form id="form">
-    <label for="backend-url">Backend URL</label>
-    <input id="backend-url" type="url" required placeholder="http://localhost:8000">
-    <p class="hint">
-      Where to download the signed blocklist from ({backend}/api/blocklist).
-      Default: http://localhost:8000, reached through
-      <code>ssh -L 8000:localhost:8000 user@vm</code>.
-      Chrome will ask for permission if you pick a different address.
-    </p>
+  <main>
+    <form id="form" class="card">
+      <h2>Connection</h2>
 
-    <label for="dashboard-url">TollTrap dashboard URL</label>
-    <input id="dashboard-url" type="url" required placeholder="http://localhost:8000/">
-    <p class="hint">Opened by the dashboard link in the popup.</p>
+      <label for="backend-url">Backend URL</label>
+      <input id="backend-url" type="url" required placeholder="http://localhost:8000">
+      <p class="hint">
+        Where the signed list is downloaded from (<code>{backend}/api/blocklist</code>), every
+        30 minutes. Default <code>http://localhost:8000</code>, reached through
+        <code>ssh -N -L 8000:localhost:8000 user@vm</code>. Chrome asks for permission if you
+        pick a different address.
+      </p>
 
-    <label class="toggle">
-      <input id="demo-mode" type="checkbox"> Demo mode
-    </label>
-    <p class="hint">
-      Uses the bundled, signed demo list instead of the live one and also checks
-      localhost pages. Use it with demo/index.html so you never open a real scam site.
-      While on, the extension does not contact the backend.
-    </p>
+      <label for="dashboard-url">Scamouflage dashboard URL</label>
+      <input id="dashboard-url" type="url" required placeholder="http://localhost:8000/">
+      <p class="hint">Opened by the dashboard button in the popup. Default <code>http://localhost:8000/</code>.</p>
 
-    <button type="submit">Save</button><span id="status" role="status"></span>
-  </form>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-title">Demo mode</div>
+          <p class="hint">
+            Uses the bundled, signed demo list instead of the live one and also checks
+            <code>localhost</code> pages. The extension doesn't contact the backend while this is on.
+          </p>
+        </div>
+        <label class="switch">
+          <input id="demo-mode" type="checkbox">
+          <span class="slider" aria-hidden="true"></span>
+          <span class="sr-only">Demo mode</span>
+        </label>
+      </div>
 
-  <h2>Sites you chose to continue to (this session)</h2>
-  <p class="hint">Flagged sites you opened with "Continue anyway". Cleared when the browser closes.</p>
-  <ul id="allowed"></ul>
-  <button id="clear-allowed" class="secondary" type="button">Clear list</button>
+      <div class="save-row">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <span id="status" role="status"></span>
+      </div>
+    </form>
+
+    <section class="card">
+      <h2>Try the demo</h2>
+      <p class="hint">
+        Start the harmless demo page with
+        <code>python3 -m http.server 5500 --bind 127.0.0.1 --directory demo</code>,
+        turn on demo mode above, then open one of these. They all run on your own computer.
+      </p>
+      <ul class="demo-list" id="demo-list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Sites you chose to continue to</h2>
+      <p class="hint">Flagged sites you opened with "Continue anyway". Cleared when you close the browser.</p>
+      <ul id="allowed" class="allowed"></ul>
+      <button id="clear-allowed" class="btn btn-secondary" type="button">Clear list</button>
+    </section>
+
+    <section class="card about">
+      <h2>About &amp; privacy</h2>
+      <ul>
+        <li>Every check happens inside your browser. Hostnames are hashed (SHA-256) and compared
+          with the downloaded list; the sites you visit are never sent anywhere.</li>
+        <li>The list is signed with Ed25519 and is only used if the signature checks out.</li>
+        <li>A flagged site is a <strong>likely</strong> scam, not a confirmed one. A site that isn't on
+          the list isn't proven safe.</li>
+      </ul>
+      <p class="meta" id="about-meta"></p>
+    </section>
+  </main>
 
   <script src="config.js"></script>
   <script src="options.js"></script>

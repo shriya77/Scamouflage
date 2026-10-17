@@ -47,6 +47,8 @@ const state = {
   generatedAt: null,
   entries: new Map(),     // hash -> entry, for fast lookups
   allowlist: new Set(),   // hashes of official domains
+  flaggedHostnames: null, // how many flagged sites the list covers (null = not reported)
+  model: null,            // { version, trained_at, n_train, n_val } or null
   loadError: null,
 };
 let loadPromise = null;     // the in-progress (or finished) load of the active list
@@ -74,6 +76,8 @@ function activate(payload, source) {
   state.entries = new Map(payload.entries.map((e) => [e.h, e]));
   state.allowlist = new Set(payload.allowlist);
   state.generatedAt = payload.generated_at;
+  state.flaggedHostnames = payload.flagged_hostnames;
+  state.model = payload.model;
   state.source = source;
   state.loaded = true;
   state.loadError = null;
@@ -84,6 +88,8 @@ function deactivate(error) {
   state.entries = new Map();
   state.allowlist = new Set();
   state.generatedAt = null;
+  state.flaggedHostnames = null;
+  state.model = null;
   state.source = null;
   state.loaded = false;
   state.loadError = error || null;
@@ -404,6 +410,8 @@ async function getListInfo() {
     loaded: state.loaded,
     source: state.source,
     entryCount: state.entries.size,
+    flaggedHostnames: state.flaggedHostnames,
+    model: state.model,
     generatedAt: state.generatedAt,
     loadError: state.loadError,
     demoMode: settings.demoMode,
