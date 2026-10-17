@@ -1,0 +1,24 @@
+# Big shared platforms that are NOT in the Public Suffix List's private section
+# but still host other people's content on subdomains (e.g. sites.google.com).
+# If a flagged hostname lives under one of these, we still flag the exact
+# hostname, but we never set match_subdomains on the registrable domain, so a
+# single bad subdomain can't make the whole platform show a warning.
+google.com
+microsoft.com
+apple.com
+amazon.com
+cloudflare.com
+wordpress.com
+wixsite.com
+squarespace.com
+weebly.com
+godaddysites.com
+webflow.io
+notion.site
+glitch.me
+replit.app
+vercel.app
+netlify.app
+firebaseapp.com
+web.app
+azurewebsites.net
