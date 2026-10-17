@@ -54,8 +54,13 @@ class FakeS1:
         return [self.scores.get(h, 0.05) for h in hosts]
 
 
+class FakeEngine(Engine):
+    def decide_host(self, host):  # like the worker: one name on a certificate seen at a known time
+        return self.decide_cert({"all_domains": [host]}, seen_at=1792245600.5)[0]
+
+
 def fake_engine():
-    return Engine(FakeS0(), FakeS1(), None, TH)
+    return FakeEngine(FakeS0(), FakeS1(), None, TH)
 
 
 def ctx_for(host, cert_id="ab" * 32):

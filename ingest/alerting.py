@@ -165,7 +165,7 @@ def alert_row(d, ctx):
         "registrar": d.get("registrar"),
         "risky_registrar": _i(d.get("risky_registrar")),
         "model_version": d.get("model_version"),
-        "cert_seen_at": d.get("cert_seen_at"),
+        "cert_seen_at": d.get("cert_seen_at") or (now_iso(ctx["seen_at"]) if ctx.get("seen_at") else None),
         "decided_at": d.get("decided_at"),
     }
 
