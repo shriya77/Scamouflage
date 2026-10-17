@@ -1,0 +1,12 @@
+data/
+vendor/
+bin/
+*.db
+*.db-wal
+*.db-shm
+*.pem
+keys/
+__pycache__/
+*.pyc
+.venv/
+ct_index.json
