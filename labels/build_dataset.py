@@ -21,8 +21,11 @@ Cleaning rules (each one prints how many rows it removed):
   1. lowercase, strip "www." / "*.", drop junk, IP addresses and names without a real ending
   2. one row per name (duplicates across feeds are merged)
   3. a name on BOTH lists is dropped from both (we cannot trust its label)
-  4. the split is by REGISTERED DOMAIN, so lookalikes from one gang
-     (usps.com-abc.bid, usps.com-xyz.bid) never end up in both train and test
+  4. the split is by CAMPAIGN: lookalikes from one kit (usps.com-abc.bid, usps.com-xyz.bid
+     -> group 'usps.com-*.bid') never end up in both train and test. Names without a brand or
+     lure word are grouped by registered domain.
+  Normal examples: data/ct_sample.txt (random live-stream domains) is the most realistic source;
+  export it from the stream's `seen` table and rerun.
 """
 import argparse
 import csv
@@ -33,9 +36,39 @@ import sys
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from feeds import DATA, clean_host, registered_domain  # noqa: E402
+import re  # noqa: E402
+from feeds import DATA, clean_host, load_brands, registered_domain  # noqa: E402
 
-COLUMNS = ["host", "domain", "label", "category", "source", "first_listed"]
+_BRANDS = [w for w, _ in load_brands()]
+_LURES = {"pay", "fee", "fees", "toll", "verify", "secure", "login", "account", "update", "billing", "refund",
+          "citation", "violation", "invoice", "track", "deliver", "parcel", "claim", "notice", "alert",
+          "support", "confirm", "service", "unpaid", "due", "fine", "penalty", "redeliver", "customs", "package"}
+_STRUCT = {"com", "gov", "org", "net", "us", "www"}
+
+
+def campaign_key(host):
+    """Group lookalikes from one kit: usps.com-abc.bid and usps.com-xyz.bid -> 'usps.com-*.bid'.
+    Words that are brands, lure words or fake-TLD parts are kept; everything else becomes '*'.
+    Returns None when the name has no brand / lure word (then the registered domain is the group)."""
+    parts = re.split(r"([^a-z0-9]+)", host)
+    out, signal = [], False
+    for i, t in enumerate(parts):
+        if i % 2:                      # separator ('.', '-')
+            out.append(t)
+            continue
+        is_last = i == len(parts) - 1  # keep the ending (.bid, .win)
+        brand = next((b for b in _BRANDS if t == b or (len(b) >= 5 and b in t) or (len(b) <= 4 and t.startswith(b))), None)
+        if brand:
+            out.append(brand); signal = True
+        elif t in _LURES:
+            out.append(t); signal = True
+        elif t in _STRUCT or is_last:
+            out.append(t)
+        else:
+            out.append("*")
+    return "".join(out) if signal else None
+
+COLUMNS = ["host", "domain", "group", "label", "category", "source", "first_listed"]
 
 
 def read_csv(path):
@@ -77,6 +110,7 @@ def main():
             out[h] = {
                 "host": h,
                 "domain": registered_domain(h),
+                "group": (campaign_key(h) if label else None) or registered_domain(h),
                 "label": label,
                 "category": r.get("category") or ("other" if label else "legit"),
                 "source": r.get("feeds") or r.get("source") or "",
@@ -109,12 +143,17 @@ def main():
         fut_hosts = {r["host"] for r in future}
         rows = [r for r in rows if r["host"] not in fut_hosts]
 
-    train = [r for r in rows if not in_test(r["domain"], args.test_pct)]
-    test = [r for r in rows if in_test(r["domain"], args.test_pct)]
-    # sanity check: no registered domain on both sides
-    leak = {r["domain"] for r in train} & {r["domain"] for r in test}
-    assert not leak, f"leak: {list(leak)[:5]}"
-    print(f"rule 4:   split by registered domain -> train {len(train):,} / test {len(test):,} (0 shared domains)")
+    train = [r for r in rows if not in_test(r["group"], args.test_pct)]
+    test = [r for r in rows if in_test(r["group"], args.test_pct)]
+    shared_groups = {r["group"] for r in train} & {r["group"] for r in test}
+    assert not shared_groups, f"leak: {list(shared_groups)[:5]}"
+    shared_domains = {r["domain"] for r in train} & {r["domain"] for r in test}
+    n_groups = len({r["group"] for r in rows if r["label"] == 1})
+    print(f"rule 4:   split by CAMPAIGN (scams: {n_groups:,} lookalike groups) -> train {len(train):,} / test {len(test):,}")
+    print(f"          0 shared groups; {len(shared_domains):,} registered domains on both sides "
+          f"(shared hosting like github.io / firebaseapp.com)")
+    big = Counter(r["group"] for r in rows if r["label"] == 1).most_common(5)
+    print("          biggest scam groups: " + ", ".join(f"{g} ({n:,})" for g, n in big))
 
     def write(name, data):
         with open(os.path.join(DATA, name), "w", newline="") as f:

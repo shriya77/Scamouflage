@@ -1,0 +1,2 @@
+{"all_domains": ["ezpass.com-xk2.win", "*.ezpass.com-xk2.win", "ntta.com-xk2.win", "txtag.com-xk2.win", "sunpass.com-xk2.win"],
+ "issuer": {"O": "Let's Encrypt", "CN": "R11"}, "not_before": 1792245600, "not_after": 1800021600}

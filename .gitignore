@@ -13,3 +13,6 @@ __pycache__/
 *.pyc
 .venv/
 ct_index.json
+
+models/*
+!models/thresholds.json
