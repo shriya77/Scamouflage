@@ -86,6 +86,8 @@ CACHE_SECONDS = float(os.environ.get("TOLLTRAP_BLOCKLIST_CACHE_S", "60"))
 OFFICIAL_FILES = [os.path.join(HERE, "official_domains.txt"),
                   os.path.join(REPO, "labels", "official.txt")]
 NO_WILDCARD_FILE = os.path.join(HERE, "no_wildcard_domains.txt")
+# labels.db holds the `tranco_top` table (Tranco's top sites, see model/stage0.py).
+LABELS_DB = os.environ.get("LABELS_DB") or os.path.join(REPO, "data", "labels.db")
 
 # Two extractors over the Public Suffix List snapshot bundled with tldextract
 # (suffix_list_urls=() means "never download", so this works on an offline VM).
@@ -167,10 +169,12 @@ def make_entry(hostname: str, match_subdomains: bool, score: float,
     }
 
 
-def targets_for(hostname: str, no_wildcard: set[str]) -> list[tuple[str, bool]]:
+def targets_for(hostname: str, no_wildcard: set[str],
+                top_sites: set[str] = frozenset()) -> list[tuple[str, bool]]:
     """Which names to emit for one flagged hostname, as (name, match_subdomains).
 
     ezpass.com-xk2.win -> [("ezpass.com-xk2.win", False), ("com-xk2.win", True)]
+    login.windows-ppe.net, windows-ppe.net in top_sites -> [("login.windows-ppe.net", False)]
     """
     if _is_ip(hostname):
         return [(hostname, False)]
@@ -194,6 +198,10 @@ def targets_for(hostname: str, no_wildcard: set[str]) -> list[tuple[str, bool]]:
         return [(hostname, False), (tenant, False)]
 
     registrable = f"{icann.domain}.{icann.suffix}"
+    if registrable in top_sites:
+        # A popular site (often a noisy feed listing it): flag only this exact name,
+        # never the site itself or everything under it.
+        return [(hostname, False)]
     wildcard = registrable not in no_wildcard
     return [(hostname, False), (registrable, wildcard)]
 
@@ -252,9 +260,32 @@ def official_domains() -> set[str]:
     return out
 
 
+_top_sites_warned: set[str] = set()
+
+
+def read_top_sites(path: str = LABELS_DB) -> set[str]:
+    """Hosts in labels.db's `tranco_top` table. Empty (guard off) if the file or table is missing."""
+    problem = None
+    if not path or not os.path.exists(path):
+        problem = "no labels DB"
+    else:
+        try:
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+            try:
+                return {h.strip().lower() for (h,) in con.execute("SELECT host FROM tranco_top") if h}
+            finally:
+                con.close()
+        except sqlite3.Error as e:
+            problem = str(e)
+    if problem not in _top_sites_warned:
+        _top_sites_warned.add(problem)
+        log.warning("tranco_top guard is off (%s: %s)", path, problem)
+    return set()
+
+
 def build_payload(rows, allow_domains: set[str], no_wildcard: set[str],
                   threshold: float = THRESHOLD, source: str = LIST_SOURCE,
-                  now: float | None = None) -> dict:
+                  now: float | None = None, top_sites: set[str] = frozenset()) -> dict:
     """Pure function: alert rows -> payload dict (ready to be signed).
 
     rows: iterable of (domain, score, reasons_json, seen_at).
@@ -272,7 +303,7 @@ def build_payload(rows, allow_domains: set[str], no_wildcard: set[str],
             continue
         reasons = _parse_reasons(reasons_raw)
         observed = iso_utc(seen_at)
-        for name, wildcard in targets_for(hostname, no_wildcard):
+        for name, wildcard in targets_for(hostname, no_wildcard, top_sites):
             _merge(entries, make_entry(name, wildcard, score, reasons, observed, source))
 
     return {
@@ -364,10 +395,12 @@ def build_signed_body() -> bytes:
     """Blocking work (DB read + signing). Runs in a thread, not the event loop."""
     key = _get_key()
     rows = _read_alert_rows(DB_PATH)
-    payload = build_payload(rows, official_domains(), read_domain_file(NO_WILDCARD_FILE))
+    top_sites = read_top_sites()
+    payload = build_payload(rows, official_domains(), read_domain_file(NO_WILDCARD_FILE),
+                            top_sites=top_sites)
     envelope = sign_payload(payload, key, KEY_ID)
-    log.info("blocklist rebuilt: %d entries from %d alert rows (source=%s)",
-             len(payload["entries"]), len(rows), LIST_SOURCE)
+    log.info("blocklist rebuilt: %d entries from %d alert rows (source=%s, %d tranco_top sites)",
+             len(payload["entries"]), len(rows), LIST_SOURCE, len(top_sites))
     return json.dumps(envelope).encode("utf-8")
 
 
