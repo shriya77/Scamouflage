@@ -1,0 +1,22 @@
+# Official sites that must NEVER be flagged. One registrable domain per line.
+# Their SHA-256 hashes go into the blocklist's "allowlist": if a site or any of
+# its parent domains is on this list, the extension stops and does not warn.
+# labels/official.txt (if present) is merged in automatically.
+# CHECK each domain on the agency's own website before adding it.
+ntta.org
+txtag.org
+hctra.org
+sunpass.com
+thetollroads.com
+bayareafastrak.org
+illinoistollway.com
+peachpass.com
+ezdrivema.com
+e-zpassny.com
+ezpassnj.com
+usps.com
+fedex.com
+dhl.com
+irs.gov
+txdmv.gov
+dmv.ca.gov
