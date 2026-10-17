@@ -19,10 +19,16 @@ Issuer lookup:
 import base64
 import binascii
 import collections
+import warnings
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, ed448, rsa
+from cryptography.utils import CryptographyDeprecationWarning
+
+# Some real CAs issue certs with non-positive serials; cryptography warns once per
+# process ("Parsed a serial number which wasn't positive"), which spams consumer.log.
+warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
 _MAX_ISSUERS = 5000           # distinct intermediate CAs we remember
 _PER_NAME = 4                 # cross-signs / key rollovers share a subject name
