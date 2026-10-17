@@ -389,8 +389,9 @@ class KnownList:
 
 
 # ---------------------------------------------------------------------- CLI
-def _iter_names(path: str):
-    """Names from a text file (one per line) or a CT recording (.jsonl / .jsonl.gz)."""
+def _iter_certs(path: str):
+    """Lists of names: one per certificate from a CT recording (.jsonl / .jsonl.gz), or one
+    single-name list per line of a text file."""
     if ".jsonl" in os.path.basename(path):
         opener = gzip.open if path.endswith(".gz") else open
         with opener(path, "rt", encoding="utf-8", errors="replace") as f:
@@ -402,13 +403,13 @@ def _iter_names(path: str):
                 if msg.get("message_type") != "certificate_update":
                     continue
                 leaf = (msg.get("data") or {}).get("leaf_cert") or {}
-                yield from leaf.get("all_domains") or []
+                yield list(leaf.get("all_domains") or [])
     else:
         with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    yield line
+                    yield [line]
 
 
 def _load(db: str) -> tuple[KnownList, float, float, str]:
@@ -468,32 +469,38 @@ def cmd_check(args):
 
 def cmd_bench(args):
     kl, before, after, kind = _load(args.db)
-    names, certs = [], 0
+    names, cert_of = [], []  # cert_of[i] = which certificate names[i] came from
     t0 = time.perf_counter()
-    for name in _iter_names(args.names):
-        names.append(name)
+    for c, cert in enumerate(_iter_certs(args.names)):
+        for name in cert[:args.n - len(names)]:
+            names.append(name)
+            cert_of.append(c)
         if len(names) >= args.n:
             break
-    print(f"read {len(names):,} names ({len(set(names)):,} unique) from {args.names} "
-          f"in {time.perf_counter() - t0:.1f} s")
+    n_certs = cert_of[-1] + 1 if cert_of else 0
+    print(f"read {len(names):,} names ({len(set(names)):,} unique) from {n_certs:,} certificates "
+          f"in {args.names} in {time.perf_counter() - t0:.1f} s")
     registered_domain.cache_clear()  # cold cache: the honest number
-    check, hits = kl.check, []
+    check, hits, hit_idx = kl.check, [], []
     t0 = time.perf_counter()
-    for n in names:
-        r = check(n)
-        if r is not None:
+    for i, n in enumerate(names):
+        if check(n) is not None:
             hits.append(n)
+            hit_idx.append(i)
     dt = time.perf_counter() - t0
     print(f"checks/s:  {len(names) / dt:,.0f}  ({len(names):,} checks in {dt:.2f} s, one core)")
     print(f"hits:      {len(hits):,}  ({len(set(hits)):,} unique names)  "
           f"hit rate {len(hits) / max(1, len(names)):.4%}")
+    hit_certs = len({cert_of[i] for i in hit_idx})
+    print(f"certificates with a known name: {hit_certs:,} of {n_certs:,} "
+          f"({hit_certs / max(1, n_certs):.4%})")
     rules = Counter(kl.explain(h)[1] for h in hits)
     print("by rule:   " + (", ".join(f"{r} {c:,}" for r, c in rules.most_common()) or "-"))
     cats = Counter(kl.check(h)["category"] for h in hits)
     print("by category: " + (", ".join(f"{c} {n:,}" for c, n in cats.most_common()) or "-"))
     print(f"memory (RSS, {kind}): {before:,.1f} -> {after:,.1f} MB for the list; "
           f"rd cache {registered_domain.cache_info().currsize:,} entries")
-    print("first 20 hits (plain text, do not open):")
+    print(f"first {min(args.show, len(set(hits)))} unique hits (plain text, do not open):")
     seen = set()
     for h in hits:
         if h in seen:
@@ -502,7 +509,7 @@ def cmd_bench(args):
         res, rule, listed = kl.explain(h)
         via = f" via {listed}" if rule == "registered-domain" else ""
         print(f"  {h}  [{rule}{via}; {res['category']}; {res['brand'] or '-'}; {res['feed']}]")
-        if len(seen) >= 20:
+        if len(seen) >= args.show:
             break
 
 
@@ -519,6 +526,7 @@ def main(argv=None):
             sp.add_argument("--names", required=True, help="text file (one name per line) or "
                             "a CT recording ct-*.jsonl.gz")
             sp.add_argument("--n", type=int, default=200_000)
+            sp.add_argument("--show", type=int, default=20, help="how many unique hits to print")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     {"stats": cmd_stats, "check": cmd_check, "bench": cmd_bench}[args.cmd](args)
