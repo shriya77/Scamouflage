@@ -11,6 +11,9 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must win over display rules like flex or grid. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--cream);

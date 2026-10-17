@@ -15,6 +15,9 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must win over display rules like flex or grid. */
+[hidden] { display: none !important; }
+
 body {
   width: 360px;
   margin: 0;
@@ -143,6 +146,98 @@ main { padding: 14px 16px 4px; }
 .stat-value { margin-top: 2px; font-size: 20px; font-weight: 800; color: var(--brand); }
 .stat-value-sm { font-size: 13px; font-weight: 700; }
 .stat-sub { font-size: 11px; color: var(--muted); }
+.stat-wide {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.stat-wide .stat-value { margin: 0; font-size: 26px; }
+.stat-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--brand-2);
+  text-decoration: none;
+}
+.stat-link:hover { text-decoration: underline; }
+
+/* ---- Alert mode (opened automatically on a flagged site) -------------------- */
+.alert {
+  margin: 14px 16px 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #f4c7c3;
+  box-shadow: 0 8px 24px rgba(165, 31, 25, 0.18);
+  animation: alert-in 0.22s ease-out;
+}
+.alert-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #d93025 0%, #a51f19 100%);
+}
+.alert-ring {
+  flex: none;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  color: #c5221f;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 40px;
+  text-align: center;
+  animation: alert-pulse 1.6s ease-out infinite;
+}
+.alert-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.alert-title { font-size: 16px; font-weight: 800; }
+.alert-body { padding: 14px 16px 16px; }
+.alert-host {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  word-break: break-all;
+}
+.alert-matched { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.alert-reasons { margin: 10px 0 0; padding-left: 18px; }
+.alert-reasons li { margin: 3px 0; }
+.alert-note {
+  margin: 12px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--red-bg);
+  color: #8c1813;
+  font-size: 12px;
+}
+.btn-danger { width: 100%; background: var(--red); color: #fff; border: none; }
+.btn-danger:hover { background: #a51f19; }
+
+/* In alert mode the regular status card would repeat the same information. */
+body.alerting #status { display: none; }
+
+@keyframes alert-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes alert-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
+  70% { box-shadow: 0 0 0 12px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alert, .alert-ring { animation: none; }
+}
 
 .sync-error {
   margin: 10px 0 0;
@@ -154,7 +249,7 @@ main { padding: 14px 16px 4px; }
 }
 
 /* ---- Buttons --------------------------------------------------------------- */
-.buttons { display: flex; gap: 8px; margin: 12px 0 10px; }
+.buttons { display: flex; margin: 12px 0 10px; }
 .btn {
   flex: 1;
   display: inline-flex; align-items: center; justify-content: center;
