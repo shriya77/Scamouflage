@@ -6,15 +6,16 @@ Read-only: serves what other stations write.
           cpacf_live.json (D)
   PEM     data/alert_pubkey.pem (D)
 
-If a source is missing, the endpoint returns mock data with "source": "mock"
-so the dashboard can label simulated data. Real data -> "source": "live".
+Real data only: every answer has "source": "live". If a source is missing (no stats.json yet,
+no DB), the endpoint answers 503 {"error": ..., "source": "unavailable"}; nothing is made up.
+The dashboard (dashboard/) is served from the same server at /, so it calls /api/... on the
+same origin (no CORS, no mixed http/https).
 
-Run:  DATA_DIR=/path/to/data python3 api/server.py
+Run:  DATA_DIR=/path/to/data python3 api/server.py      (API_HOST / API_PORT to change the bind)
 """
 import asyncio
 import json
 import os
-import random
 import re
 import sqlite3
 import sys
@@ -33,6 +34,8 @@ if os.environ.get("SCAM_DB"):
 else:
     DB_PATH = DATA_DIR / "scamouflage.db"
 sys.path.insert(0, str(ROOT))  # backend/ and alerts/ live next to api/
+DASHBOARD_DIR = ROOT / "dashboard"
+DASHBOARD_FILES = ("index.html", "app.js", "style.css", "logo.png")
 HOST = os.environ.get("API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("API_PORT", 8000))
 WS_POLL_SECONDS = 1.0
@@ -148,51 +151,16 @@ def build_campaigns(alerts, min_size=2):
     return sorted(out, key=lambda c: c["count"], reverse=True)
 
 
-# ---------------------------------------------------------------- mocks
+# ---------------------------------------------------------------- sources
 
-_BRANDS = ["ezpass", "ntta", "txtag", "sunpass", "usps", "dmv", "paytoll"]
-_TLDS = ["win", "top", "xin", "vip", "icu"]
-
-
-def mock_alert(i=None):
-    i = i if i is not None else random.randint(1000, 99999)
-    tok = "".join(random.choices("abcdefghjkmnpqrstuvwxyz23456789", k=4))
-    dom = f"{random.choice(_BRANDS)}.com-{tok}.{random.choice(_TLDS)}"
-    cid = f"mock{i:08d}"
-    return {
-        "id": cid, "cert_id": cid, "domain": dom, "domains": [dom],
-        "score": round(random.uniform(0.80, 0.99), 3),
-        "reasons": ["brand in subdomain", "cheap TLD", "com- pattern"],
-        "seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "issuer": random.choice(["Let's Encrypt", "Google Trust Services"]),
-        "log": "mock-log",
-        "verify": {"status": "ok", "algo": "ecdsa-p256"},
-        "crtsh_url": "https://crt.sh/",
-        "sig": "MOCK", "key_id": "mock",
-        "stage": 0 if i % 3 == 0 else 1,
-    }
+JSON_FILES = ("stats.json", "results.json", "leadtime.json", "hardware.json", "cpacf_live.json")
 
 
-MOCK_ALERTS = [mock_alert(i) for i in range(25)]
-MOCK = {
-    "stats.json": {"certs_total": 123456, "certs_per_sec": 247.3,
-                   "verified": {"ok": 0.82, "fail": 0.01, "unknown_issuer": 0.17},
-                   "alerts_total": 25, "uptime_s": 3600},
-    "results.json": {"precision": 0.0, "recall": 0.0, "pr_auc": 0.0,
-                     "false_alarms_per_10k": 0.0,
-                     "baselines": {"unit42_regex": {}, "keyword_rule": {}}},
-    "leadtime.json": {"median_days": 0.0, "min_days": 0.0, "max_days": 0.0,
-                      "share_before_any_feed": 0.0, "n": 0},
-    "hardware.json": {"machine": "unknown", "nnpa": False,
-                      "cpacf_on": {}, "cpacf_off": {}, "speedup": {}},
-    # Same shape as D's "cpacfstats missing" output (CONTRACTS.md section 4).
-    "cpacf_live.json": {"ts": 0, "interval_s": 2, "available": False,
-                        "totals": {}, "rates_per_s": {},
-                        "groups": {"ecdsa_verify_per_s": 0.0, "eddsa_sign_per_s": 0.0,
-                                   "eddsa_verify_per_s": 0.0, "sha_per_s": 0.0,
-                                   "aes_per_s": 0.0, "trng_per_s": 0.0},
-                        "error": "cpacf_live.json not found"},
-}
+def unavailable(what):
+    """503 instead of made-up data."""
+    return web.HTTPServiceUnavailable(
+        text=json.dumps({"error": f"{what} not available yet", "source": "unavailable"}),
+        content_type="application/json")
 
 
 # ---------------------------------------------------------------- routes
@@ -203,13 +171,40 @@ routes = web.RouteTableDef()
 def json_file_route(path, filename, *aliases):
     async def handler(request):
         data = read_json(filename)
-        return ok(data, "live") if data is not None else ok(MOCK[filename], "mock")
+        if data is None:
+            raise unavailable(filename)
+        return ok(data, "live")
     for p in (path, *aliases):
         routes.get(p)(handler)
     return handler
 
 
-json_file_route("/api/stats", "stats.json")
+def lead_time_summary():
+    """leadtime.json (model/lead_time.py, hourly) in the shape /api/stats promises. Stage-0 alerts
+    never count. None if the job hasn't written the file yet."""
+    lt = read_json("leadtime.json")
+    if lt is None:
+        return None
+    med = lt.get("median_days")
+    return {
+        "n_later_listed": lt.get("n") or 0,               # our stage>=1 alerts a feed listed later
+        "n_alerts_new": lt.get("n_alerts_new"),
+        "median_hours_early": None if med is None else round(med * 24, 1),
+        "share_before_any_feed": lt.get("share_before_any_feed"),
+        "examples": lt.get("examples") or [],
+        "generated_at": lt.get("generated_at"),
+    }
+
+
+@routes.get("/api/stats")
+async def stats(request):
+    data = read_json("stats.json")
+    if data is None:
+        raise unavailable("stats.json")
+    data["lead_time"] = lead_time_summary()
+    return ok(data, "live")
+
+
 json_file_route("/api/results", "results.json")
 json_file_route("/api/leadtime", "leadtime.json")
 json_file_route("/api/hardware", "hardware.json")
@@ -236,12 +231,7 @@ async def alerts(request):
             raise bad_request("stage must be an integer")
     rows = fetch_alerts(limit, since=since, stage=stage)
     if rows is None:
-        items = MOCK_ALERTS
-        if since:
-            items = [a for a in items if a["seen_at"] > since]
-        if stage is not None:
-            items = [a for a in items if a.get("stage", 1) == stage]
-        return ok({"items": items[:limit]}, "mock")
+        raise unavailable("alerts database")
     return ok({"items": rows}, "live")
 
 
@@ -267,9 +257,7 @@ async def alerts_summary(request):
             pass
         finally:
             conn.close()
-    known = sum(a.get("stage", 1) == 0 for a in MOCK_ALERTS)
-    return ok({"known_total": known, "new_total": len(MOCK_ALERTS) - known,
-               "total": len(MOCK_ALERTS), "stage_column": True}, "mock")
+    raise unavailable("alerts database")
 
 
 @routes.get("/api/alerts/pubkey")
@@ -298,16 +286,19 @@ async def alert_detail(request):
     aid = request.match_info["id"]
     conn = db()
     if conn is None:
-        hit = next((a for a in MOCK_ALERTS if a["id"] == aid), None)
-        if hit:
-            return ok(hit, "mock")
-        raise web.HTTPNotFound(text=json.dumps({"error": "not found"}),
-                               content_type="application/json")
+        raise unavailable("alerts database")
     try:
-        row = conn.execute(
-            "SELECT rowid AS _rowid, * FROM alerts WHERE cert_id = ? LIMIT 1",
-            (aid,),
-        ).fetchone()
+        # the numeric alert id (what /api/alerts lists as "id"), or a cert_id
+        if aid.isdigit():
+            row = conn.execute("SELECT rowid AS _rowid, * FROM alerts WHERE id = ? LIMIT 1",
+                               (int(aid),)).fetchone()
+        else:
+            row = None
+        if row is None:
+            row = conn.execute(
+                "SELECT rowid AS _rowid, * FROM alerts WHERE cert_id = ? ORDER BY id DESC LIMIT 1",
+                (aid,),
+            ).fetchone()
     except sqlite3.OperationalError:
         row = None
     finally:
@@ -322,16 +313,43 @@ async def alert_detail(request):
 async def campaigns(request):
     rows = fetch_alerts(5000)
     if rows is None:
-        return ok({"items": build_campaigns(MOCK_ALERTS, min_size=1)}, "mock")
+        raise unavailable("alerts database")
     return ok({"items": build_campaigns(rows)}, "live")
 
 
+STALE_S = 60.0  # no stats.json update for this long = the consumer is down
+
+
+def health_payload(now=None):
+    """For the demo: is the pipeline alive, how far behind, which engine stages are real."""
+    now = time.time() if now is None else now
+    st = read_json("stats.json") or {}
+    eng = st.get("engine") or {}
+    age = round(now - st["ts"], 1) if st.get("ts") else None
+    last_cert = st.get("last_seen_at")
+    if last_cert is None and st.get("ts") and st.get("lag_s") is not None:
+        last_cert = round(st["ts"] - st["lag_s"], 1)   # stats.json: lag_s = ts - last cert seen_at
+    stages = {k: eng.get(k) for k in ("stage0", "stage1", "stage2", "stage3")}
+    healthy = (age is not None and age < STALE_S and (st.get("lag_s") or 0) < 60
+               and (eng.get("mode") != "on" or all(v == "real" for v in stages.values())))
+    return {
+        "ok": bool(healthy),
+        "stats_age_s": age,
+        "last_cert_seen_at": last_cert,
+        "lag_s": st.get("lag_s"),
+        "certs_per_s": st.get("certs_per_s"),
+        "dropped_total": st.get("dropped_total"),
+        "engine": {"mode": eng.get("mode"), **stages, "stage1_version": eng.get("stage1_version"),
+                   "signing": (eng.get("signing") or {}).get("ok")},
+        "data_dir": str(DATA_DIR), "db_exists": DB_PATH.exists(),
+        "files": {n: (DATA_DIR / n).exists() for n in JSON_FILES},
+    }
+
+
 @routes.get("/api/health")
+@routes.get("/health")
 async def health(request):
-    return web.json_response({
-        "ok": True, "data_dir": str(DATA_DIR), "db_exists": DB_PATH.exists(),
-        "files": {n: (DATA_DIR / n).exists() for n in MOCK},
-    })
+    return web.json_response(health_payload())
 
 
 @routes.get("/ws/live")
@@ -345,22 +363,16 @@ async def ws_live(request):
     try:
         while not ws.closed:
             stats = read_json("stats.json")
-            await ws.send_json({"type": "stats", "source": "live" if stats else "mock",
-                                "data": stats or MOCK["stats.json"]})
+            if stats is not None:  # real data only; nothing is pushed while a source is missing
+                await ws.send_json({"type": "stats", "source": "live", "data": stats})
             if tick % WS_CPACF_EVERY == 0:
                 cpacf = read_json("cpacf_live.json")
-                await ws.send_json({"type": "cpacf",
-                                    "source": "live" if cpacf is not None else "mock",
-                                    "data": cpacf if cpacf is not None
-                                    else MOCK["cpacf_live.json"]})
+                if cpacf is not None:
+                    await ws.send_json({"type": "cpacf", "source": "live", "data": cpacf})
             tick += 1
 
             rows = fetch_alerts(50, after_rowid=last_rowid or 0)
-            if rows is None:
-                if random.random() < 0.5:
-                    await ws.send_json({"type": "alert", "source": "mock",
-                                        "data": mock_alert()})
-            else:
+            if rows is not None:
                 if last_rowid is None:  # first poll: start from newest, don't replay
                     last_rowid = rows[0]["_rowid"] if rows else 0
                 else:
@@ -387,9 +399,28 @@ async def cors(request, handler):
     return resp
 
 
+def dashboard_routes(app):
+    """The website, same origin as the API. Only these files are served (no directory listing,
+    nothing else from the repo)."""
+    async def index(request):
+        return web.FileResponse(DASHBOARD_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+    def file_route(name):
+        async def handler(request):
+            return web.FileResponse(DASHBOARD_DIR / name, headers={"Cache-Control": "no-cache"})
+        return handler
+
+    if (DASHBOARD_DIR / "index.html").exists():
+        app.router.add_get("/", index)
+        for name in DASHBOARD_FILES:
+            if (DASHBOARD_DIR / name).exists():
+                app.router.add_get(f"/{name}", file_route(name))
+
+
 def make_app():
     app = web.Application(middlewares=[cors])
     app.add_routes(routes)
+    dashboard_routes(app)
     try:  # Shriya's blocklist route for the Chrome extension
         from backend.blocklist_route import setup_blocklist_route
         setup_blocklist_route(app)
