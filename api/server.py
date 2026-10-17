@@ -179,7 +179,32 @@ def json_file_route(path, filename, *aliases):
     return handler
 
 
-json_file_route("/api/stats", "stats.json")
+def lead_time_summary():
+    """leadtime.json (model/lead_time.py, hourly) in the shape /api/stats promises. Stage-0 alerts
+    never count. None if the job hasn't written the file yet."""
+    lt = read_json("leadtime.json")
+    if lt is None:
+        return None
+    med = lt.get("median_days")
+    return {
+        "n_later_listed": lt.get("n") or 0,               # our stage>=1 alerts a feed listed later
+        "n_alerts_new": lt.get("n_alerts_new"),
+        "median_hours_early": None if med is None else round(med * 24, 1),
+        "share_before_any_feed": lt.get("share_before_any_feed"),
+        "examples": lt.get("examples") or [],
+        "generated_at": lt.get("generated_at"),
+    }
+
+
+@routes.get("/api/stats")
+async def stats(request):
+    data = read_json("stats.json")
+    if data is None:
+        raise unavailable("stats.json")
+    data["lead_time"] = lead_time_summary()
+    return ok(data, "live")
+
+
 json_file_route("/api/results", "results.json")
 json_file_route("/api/leadtime", "leadtime.json")
 json_file_route("/api/hardware", "hardware.json")

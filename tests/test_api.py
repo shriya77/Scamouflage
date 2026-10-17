@@ -141,6 +141,23 @@ def test_health_flags_a_stub_stage(d):
     run(check, d)
 
 
+
+@with_dir
+def test_stats_carries_lead_time(d):
+    with open(os.path.join(d, "stats.json"), "w") as f:
+        json.dump({"ts": time.time(), "certs_total": 5}, f)
+
+    async def check(c, server):
+        s = await (await c.get("/api/stats")).json()
+        assert s["certs_total"] == 5 and s["lead_time"] is None        # job hasn't run yet
+        with open(os.path.join(d, "leadtime.json"), "w") as f:
+            json.dump({"n": 3, "n_alerts_new": 10, "median_days": 0.5, "share_before_any_feed": 1.0,
+                       "examples": [{"host": "a.test", "lead_days": 0.5}]}, f)
+        lt = (await (await c.get("/api/stats")).json())["lead_time"]
+        assert lt["n_later_listed"] == 3 and lt["median_hours_early"] == 12.0
+        assert lt["examples"] == [{"host": "a.test", "lead_days": 0.5}]
+    run(check, d)
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
