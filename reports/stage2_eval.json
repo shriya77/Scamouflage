@@ -1,0 +1,678 @@
+{
+ "generated": "2026-10-17 20:28 UTC",
+ "machine": "s390x 3.12.3",
+ "points_table": [
+  [
+   "distinct_brands_on_cert",
+   2,
+   0.3,
+   "{v} different brands on one certificate (kit)"
+  ],
+  [
+   "distinct_brands_on_cert",
+   3,
+   0.15,
+   "3+ brands on one certificate"
+  ],
+  [
+   "brand_registered_domains",
+   3,
+   0.15,
+   "brand names on {v} different registered domains"
+  ],
+  [
+   "kit_names_with_brand",
+   2,
+   0.1,
+   "{v} fake '.com-'/'gov-' names next to a brand name"
+  ]
+ ],
+ "max_boost": 0.6,
+ "live_meta": {
+  "recording": "data/recordings/ct-20261017-153717.jsonl.gz",
+  "certs": 1174161,
+  "names": 1617290,
+  "gated_certs": 7199,
+  "gated_names": 8751,
+  "seconds": 232.0
+ },
+ "gate_reasons": {
+  "misspelled brand": 6580,
+  "fake pattern 'us-'/'net-'/'org-' prefix": 1688,
+  "brand word": 412,
+  "'.com-'/'gov-' trick": 71
+ },
+ "live": {
+  "certs": 7199,
+  "boosted": 0,
+  "boosted_share": 0.0,
+  "boost_histogram": {
+   "0.00": 7199
+  },
+  "rule_fires": {},
+  "spec_example_boosted": 3068,
+  "spec_example_boosted_share": 0.4262,
+  "spec_example_histogram": {
+   "0.00": 4131,
+   "0.05": 2141,
+   "0.10": 467,
+   "0.15": 1,
+   "0.25": 248,
+   "0.30": 161,
+   "0.40": 32,
+   "0.45": 18
+  },
+  "features_p50_p90_p99_max": {
+   "n_names": [
+    1,
+    2,
+    49,
+    156
+   ],
+   "n_registered_domains": [
+    1,
+    2,
+    5,
+    100
+   ],
+   "brand_names_on_cert": [
+    0,
+    0,
+    1,
+    44
+   ],
+   "brand_registered_domains": [
+    0,
+    0,
+    1,
+    2
+   ],
+   "brand_categories_on_cert": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "distinct_brands_on_cert": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "fake_pattern_names_on_cert": [
+    0,
+    0,
+    0,
+    2
+   ],
+   "kit_names_with_brand": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "wildcard": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "risky_tld_names_on_cert": [
+    0,
+    1,
+    2,
+    50
+   ],
+   "official_on_cert": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ },
+ "speed_us_cold_cached": [
+  55.5,
+  3.83
+ ],
+ "scam_meta": {
+  "domains_queried": 16,
+  "domains_with_certs": 7,
+  "domains_no_certs": 8,
+  "domains_errors": 2,
+  "certs": 12,
+  "by_category": {
+   "delivery": 7,
+   "gov": 5
+  }
+ },
+ "scam": {
+  "certs": 12,
+  "boosted": 0,
+  "boosted_share": 0.0,
+  "boost_histogram": {
+   "0.00": 12
+  },
+  "rule_fires": {},
+  "spec_example_boosted": 6,
+  "spec_example_boosted_share": 0.5,
+  "spec_example_histogram": {
+   "0.00": 6,
+   "0.05": 4,
+   "0.40": 2
+  },
+  "features_p50_p90_p99_max": {
+   "n_names": [
+    1,
+    1,
+    7,
+    7
+   ],
+   "n_registered_domains": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "brand_names_on_cert": [
+    1,
+    1,
+    7,
+    7
+   ],
+   "brand_registered_domains": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "brand_categories_on_cert": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "distinct_brands_on_cert": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "fake_pattern_names_on_cert": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "kit_names_with_brand": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "wildcard": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "risky_tld_names_on_cert": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "official_on_cert": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ },
+ "labels_kits": {
+  "registered_domains": 3512,
+  "with_2plus_listed_names": 73,
+  "with_2plus_brands": 24,
+  "top_multi_brand_domains": [
+   [
+    "surge.sh",
+    32,
+    [
+     "ipass",
+     "violation"
+    ]
+   ],
+   [
+    "weebly.com",
+    26,
+    [
+     "dhl",
+     "epass",
+     "irs"
+    ]
+   ],
+   [
+    "codeanyapp.com",
+    17,
+    [
+     "dhl",
+     "fedex",
+     "ipass",
+     "parcel",
+     "redeliver"
+    ]
+   ],
+   [
+    "000webhostapp.com",
+    16,
+    [
+     "dhl",
+     "epass",
+     "parcel"
+    ]
+   ],
+   [
+    "swtest.ru",
+    10,
+    [
+     "dhl",
+     "fedex",
+     "parcel"
+    ]
+   ],
+   [
+    "easywp.com",
+    6,
+    [
+     "dhl",
+     "fedex",
+     "parcel"
+    ]
+   ],
+   [
+    "appdomain.cloud",
+    4,
+    [
+     "dhl",
+     "epass",
+     "parcel"
+    ]
+   ],
+   [
+    "blogspot.ba",
+    3,
+    [
+     "dhl",
+     "usps"
+    ]
+   ]
+  ]
+ },
+ "examples": {
+  "live_boosted": [],
+  "live_boosted_by_spec_example_only": [
+   {
+    "spec_example": 0.45,
+    "names": [
+     "polina-epics-dev-667-new-plans-apimock.wfolio.work",
+     "polina-epics-dev-667-new-plans-com.wfolio.work",
+     "polina-epics-dev-667-new-plans-micro.wfolio.work",
+     "polina-epics-dev-667-new-plans.wfolio.work"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "ext.redriver-098c9054.newzealandnorth.azurecontainerapps.io",
+     "internal.redriver-098c9054.newzealandnorth.azurecontainerapps.io",
+     "redriver-098c9054.newzealandnorth.azurecontainerapps.io",
+     "scm.redriver-098c9054.newzealandnorth.azurecontainerapps.io"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "3.subarumerrillville.com",
+     "adaptivemind.com",
+     "analitik.entis.io",
+     "api.entis.io",
+     "api.savraai.club",
+     "app.entis.io"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "ext.redriver-237f5978.westus2.azurecontainerapps.io",
+     "internal.redriver-237f5978.westus2.azurecontainerapps.io",
+     "redriver-237f5978.westus2.azurecontainerapps.io",
+     "scm.redriver-237f5978.westus2.azurecontainerapps.io"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "access.tlen.org",
+     "adm.paturnpike.co",
+     "admin.paturnpike.co",
+     "alpha.paturnpike.co",
+     "app.paturnpike.co",
+     "appgyver.paturnpike.co"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "1000.pornotribune.net",
+     "10141.pornotribune.net",
+     "1125.pornotribune.net",
+     "1591da92-a45a-463b-87ab-34a8ae7266c3.spokanimal.com",
+     "16.mirreryeshiva.com",
+     "1647.pornotribune.net"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "ext.redriver-4a1eac65.eastus.azurecontainerapps.io",
+     "internal.redriver-4a1eac65.eastus.azurecontainerapps.io",
+     "redriver-4a1eac65.eastus.azurecontainerapps.io",
+     "scm.redriver-4a1eac65.eastus.azurecontainerapps.io"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "ext.redriver-db4d8d37.northcentralusstage.azurecontainerapps.io",
+     "internal.redriver-db4d8d37.northcentralusstage.azurecontainerapps.io",
+     "redriver-db4d8d37.northcentralusstage.azurecontainerapps.io",
+     "scm.redriver-db4d8d37.northcentralusstage.azurecontainerapps.io"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "admin.happy-grass.com",
+     "happy-grass.com",
+     "m.happy-grass.com",
+     "mail.happy-grass.com"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "apps.fdsex-137c05c9-4d31-4fc7-8a3c-174c4416639b.azurehdinsight.net",
+     "fdsex-137c05c9-4d31-4fc7-8a3c-174c4416639b-int.azurehdinsight.net",
+     "fdsex-137c05c9-4d31-4fc7-8a3c-174c4416639b-kafkarest.azurehdinsight.net",
+     "fdsex-137c05c9-4d31-4fc7-8a3c-174c4416639b.azurehdinsight.net"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "apps.fdsex-f95acdc9-8876-4664-815d-92a4bf16c794.azurehdinsight.net",
+     "fdsex-f95acdc9-8876-4664-815d-92a4bf16c794-int.azurehdinsight.net",
+     "fdsex-f95acdc9-8876-4664-815d-92a4bf16c794-kafkarest.azurehdinsight.net",
+     "fdsex-f95acdc9-8876-4664-815d-92a4bf16c794.azurehdinsight.net"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "ext.redriver-68f48811.germanywestcentral.azurecontainerapps.io",
+     "internal.redriver-68f48811.germanywestcentral.azurecontainerapps.io",
+     "redriver-68f48811.germanywestcentral.azurecontainerapps.io",
+     "scm.redriver-68f48811.germanywestcentral.azurecontainerapps.io"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "dermilola.vercel.app",
+     "felixst98.vercel.app",
+     "juviolato.vercel.app",
+     "kabugh.vercel.app",
+     "michaeljmccready.vercel.app",
+     "needlepoint.vercel.app"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "default.main.jolly-chatelet-bg2zk78.cribl.cloud",
+     "in.main-default-jolly-chatelet-bg2zk78.cribl.cloud",
+     "main-jolly-chatelet-bg2zk78.cribl.cloud",
+     "main.jolly-chatelet-bg2zk78.cribl.cloud"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "agrotecban.facel.com.ec",
+     "balsablock.facel.com.ec",
+     "balsariver.facel.com.ec",
+     "ccarmita.facel.com.ec",
+     "chierro.facel.com.ec",
+     "dcro.facel.com.ec"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "bolivarovidio.facel.com.ec",
+     "bormavet.facel.com.ec",
+     "cclm.facel.com.ec",
+     "delebes.facel.com.ec",
+     "dvifer.facel.com.ec",
+     "eddygamboa.facel.com.ec"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "bolivarovidio.facel.com.ec",
+     "bormavet.facel.com.ec",
+     "cclm.facel.com.ec",
+     "delebes.facel.com.ec",
+     "dvifer.facel.com.ec",
+     "eddygamboa.facel.com.ec"
+    ]
+   },
+   {
+    "spec_example": 0.45,
+    "names": [
+     "cdn-imantools.vercel.app",
+     "creativeweb.vercel.app",
+     "eliasalejo01.vercel.app",
+     "hackd.vercel.app",
+     "harikrishnanpk91.vercel.app",
+     "israeltrejoj2002.vercel.app"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "imap.broderiepassion.fr",
+     "mail.broderiepassion.fr",
+     "pop.broderiepassion.fr",
+     "smtp.broderiepassion.fr"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "adsina.ir",
+     "adsina.ir.tekex.ir",
+     "cpanel.tekex.ir",
+     "cpcalendars.tekex.ir",
+     "cpcontacts.tekex.ir",
+     "mail.tekex.ir"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "api.fxtax.net",
+     "dev.fxtax.net",
+     "fxtax.net",
+     "test.fxtax.net",
+     "vip.fxtax.net"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "autodiscover.blog.accel-5.com",
+     "blog.accel-5.com",
+     "blog.ebscousergroup.org",
+     "cpanel.blog.accel-5.com",
+     "cpcalendars.blog.accel-5.com",
+     "cpcontacts.blog.accel-5.com"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "api.fxtax.net",
+     "dev.fxtax.net",
+     "fxtax.net",
+     "test.fxtax.net",
+     "vip.fxtax.net"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "auth.dev.pls3rdlearning.com",
+     "cdn.dev.teksresourcesystem.net",
+     "css.dev.teksresourcesystem.net",
+     "dev.cdn.3rdl.com",
+     "dev.css.portal.3rdl.com",
+     "dev.export.3rdl.com"
+    ]
+   },
+   {
+    "spec_example": 0.4,
+    "names": [
+     "autoconfig.panel.laundries.ir",
+     "autodiscover.panel.laundries.ir",
+     "cpcalendars.panel.laundries.ir",
+     "cpcontacts.panel.laundries.ir",
+     "mail.panel.laundries.ir",
+     "panel.laundries.ir"
+    ]
+   }
+  ],
+  "scam": [
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "cpanel.postoffice-redeliveritem.com",
+     "cpcalendars.postoffice-redeliveritem.com",
+     "cpcontacts.postoffice-redeliveritem.com",
+     "mail.postoffice-redeliveritem.com",
+     "postoffice-redeliveritem.com",
+     "webdisk.postoffice-redeliveritem.com",
+     "webmail.postoffice-redeliveritem.com"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "gov",
+    "reasons": [],
+    "names": [
+     "finance91-exercitationem57.pro"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "gov",
+    "reasons": [],
+    "names": [
+     "finance91-exercitationem57.pro"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "usps-informedo.top"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "usps-informedo.top"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "gov",
+    "reasons": [],
+    "names": [
+     "1715669140-staging.surge.sh"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "gov",
+    "reasons": [],
+    "names": [
+     "main.tmtg.surge.sh"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "prod.us-east4.jibeapply.com"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "jibeapply.com"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "gov",
+    "reasons": [],
+    "names": [
+     "cpanel.irsdepartement-gov.com",
+     "cpcalendars.irsdepartement-gov.com",
+     "cpcontacts.irsdepartement-gov.com",
+     "irsdepartement-gov.com",
+     "mail.irsdepartement-gov.com",
+     "webdisk.irsdepartement-gov.com",
+     "webmail.irsdepartement-gov.com"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "dhl.smolfryz.com"
+    ]
+   },
+   {
+    "boost": 0.0,
+    "category": "delivery",
+    "reasons": [],
+    "names": [
+     "smolfryz.com"
+    ]
+   }
+  ]
+ }
+}
