@@ -93,6 +93,30 @@ def load_scam(path):
     return domains, certs
 
 
+def labels_kit_stats(db: str) -> dict:
+    """How kit-like are KNOWN toll/delivery/gov scams? Per registered domain: how many listed names
+    and how many different brands. Read-only."""
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect("file:" + os.path.abspath(os.path.expanduser(db)) + "?mode=ro",
+                          uri=True, timeout=30)
+    brands, names = defaultdict(set), defaultdict(set)
+    for h, brand in con.execute("SELECT host, brand FROM labels "
+                                "WHERE category IN ('toll','delivery','gov')"):
+        h = F.clean_host(h)
+        rd = registered_domain(h) if h else None
+        if rd:
+            names[rd].add(h)
+            if brand:
+                brands[rd].add(brand)
+    con.close()
+    multi = sorted((d for d in brands if len(brands[d]) >= 2), key=lambda d: -len(names[d]))
+    return {"registered_domains": len(names),
+            "with_2plus_listed_names": sum(1 for d in names if len(names[d]) >= 2),
+            "with_2plus_brands": len(multi),
+            "top_multi_brand_domains": [[d, len(names[d]), sorted(brands[d])] for d in multi[:8]]}
+
+
 # ------------------------------------------------------------------------------- the spec's example
 def spec_example_boost(leaf: dict) -> float:
     """MODEL_SPEC §7's EXAMPLE table, as first written, for comparison only: +0.25 if >=2 brand
@@ -233,6 +257,8 @@ def cmd_eval(args):
             "certs": len(scam_certs),
             "by_category": dict(Counter(c["category"] for c in scam_certs))}
         report["scam"] = summarize(scam)
+    if args.labels_db:
+        report["labels_kits"] = labels_kit_stats(args.labels_db)
     boosted_live = sorted((r for r in live if r["boost"] > 0), key=lambda r: -r["boost"])
     spec_live = sorted((r for r in live if r["spec_example"] > 0), key=lambda r: -r["spec_example"])
     report["examples"] = {
@@ -297,6 +323,15 @@ def markdown(r) -> str:
               "", "Rule fires: " + _hist(sc["rule_fires"]), "",
               "Names per scam certificate (p50/p90/p99/max): "
               + "/".join(str(x) for x in sc["features_p50_p90_p99_max"]["n_names"])]
+    if "labels_kits" in r:
+        k = r["labels_kits"]
+        L += ["", "## How kit-like are known scams? (labels.db)", "",
+              f"Of {k['registered_domains']:,} registered domains with toll/delivery/gov scams, "
+              f"{k['with_2plus_listed_names']:,} have 2+ listed names and {k['with_2plus_brands']:,} "
+              "have 2+ different brands. The multi-brand ones are mostly shared hosting, not kits: "
+              + ", ".join(f"{d} ({n} names: {'/'.join(b)})" for d, n, b in k["top_multi_brand_domains"])
+              + ". So most real scams are one name on one throwaway domain: Stage 2 rarely fires, "
+              "and when it can't tell, it adds nothing (a plain certificate is neutral)."]
     cold, hot = r["speed_us_cold_cached"]
     L += ["", "## Speed", "", f"`boost()`: {cold} µs for a new certificate, {hot} µs for the next "
           "name on the same certificate (cached), one core. Only gated names reach it "
@@ -326,6 +361,7 @@ def main(argv=None):
     v = sub.add_parser("eval", help="report on gated live certs (+ known scam certs)")
     v.add_argument("--live", required=True, help="output of `dump`")
     v.add_argument("--scam", help="output of model/stage2_crtsh.py")
+    v.add_argument("--labels-db", help="labels.db: also report how kit-like known scams are")
     v.add_argument("--show", type=int, default=25)
     v.add_argument("--out", default="reports/stage2_eval")
     args = p.parse_args(argv)
