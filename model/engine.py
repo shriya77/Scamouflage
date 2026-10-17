@@ -239,7 +239,12 @@ class Engine:
         risky = bool(d.get("risky_registrar"))
 
         if d["verdict"] == "high":
-            old = age is not None and age > OLD_DOMAIN_DAYS and d["score"] < VERY_HIGH_SCORE
+            # An old domain only clears a name when the brand word is in the part the owner registered
+            # (austin-toll-repair.com). For ezpass-pay.weebly.com the old age belongs to the hosting
+            # platform, not the scammer, so it proves nothing -> trust the score.
+            owner_part = F.brand_hits(F.registered_domain(d["host"])) or F.fake_pattern(F.registered_domain(d["host"]))
+            old = (age is not None and age > OLD_DOMAIN_DAYS and d["score"] < VERY_HIGH_SCORE
+                   and bool(owner_part))
             d["verdict"] = "safe" if old else "scam"        # no answer -> trust the score
         else:  # maybe
             young = age is not None and (age <= NEW_DOMAIN_DAYS or (age <= NEW_RISKY_DAYS and risky))

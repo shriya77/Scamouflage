@@ -120,6 +120,14 @@ def test_no_stage3_answer():
     assert e.finalize(maybe, {"ok": False, "error": "timeout"})["verdict"] == "safe"
 
 
+def test_old_hosting_platform_does_not_clear_scam():
+    # weebly.com is decades old, but that's the platform's age, not the scammer's page
+    e = engine({"ezpass-pay.weebly.com": 0.8})
+    d = e.decide_host("ezpass-pay.weebly.com")
+    assert d["verdict"] == "high"
+    assert e.finalize(d, ok(9000, "Network Solutions"))["verdict"] == "scam"
+
+
 def test_very_high_score_survives_old_domain():
     e = engine({"ezpass-toll.win": 0.995})
     d = e.decide_host("ezpass-toll.win")

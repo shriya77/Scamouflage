@@ -37,7 +37,9 @@ def _read_list(path, with_cat=False):
 
 BRANDS = sorted(_read_list(os.path.join(ROOT, "labels", "brands.txt"), True), key=lambda b: -len(b[0]))
 OFFICIAL = set(_read_list(os.path.join(ROOT, "labels", "official.txt")))
-TYPO_TARGETS = [(w, set(w), c) for w, c in BRANDS if len(w) >= 5 and "-" not in w]
+# Misspelling targets: only brand words of 6+ letters. Shorter ones (fedex, ipass, tolls, txtag) sit one or two
+# letters away from ordinary words (codex, class, tools, titan) and let lots of normal sites through the gate.
+TYPO_TARGETS = [(w, set(w), c) for w, c in BRANDS if len(w) >= 6 and "-" not in w]
 
 # Cheap / abused endings seen in smishing reports (Unit 42 and others). Tunable.
 RISKY_TLDS = {
@@ -53,16 +55,22 @@ LURE_WORDS = [
 ]
 VOWELS = set("aeiou")
 _HOST_OK = re.compile(r"^[a-z0-9.-]+$")
-_FAKE_PREFIX = re.compile(r"(com|gov|org|net|us)-")
+# kits use "com-" / "gov-" at the start (com-ezpass.top, gov-dmv.win); "org-"/"net-"/"us-" start too many
+# normal names (org-domivka.shop was a false alarm), so they only count in the ".org-" infix form below.
+_FAKE_PREFIX = re.compile(r"(com|gov)-")
 _FAKE_TLD_IN_HOST = re.compile(r"\.(com|gov|org|net)-")
 
 try:
     import tldextract
     # private PSL domains ON: "x.github.io" is its own registered domain, so shared hosting
     # never makes a whole platform look like one scam domain.
-    _EXTRACT = tldextract.TLDExtract(cache_dir=os.path.join(ROOT, "data", ".tld_cache"),
-                                     include_psl_private_domains=True)
-except Exception:  # pragma: no cover - fallback when tldextract is missing
+    # suffix_list_urls=() -> use tldextract's BUNDLED Public Suffix List snapshot (no download), the same
+    # one Stage 0 and Stage 2 use, so all stages agree on registered domains.
+    _EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True)
+except Exception as _e:  # pragma: no cover - fallback when tldextract is missing
+    import logging
+    logging.getLogger("scamouflage.features").warning(
+        "tldextract unavailable (%s: %s); using simple last-two-labels domain split", type(_e).__name__, _e)
     _EXTRACT = None
 
 
@@ -148,13 +156,33 @@ def brand_hits(text):
     return hits
 
 
+def _lev_le(a, b, k):
+    """True if edit distance(a, b) <= k (k = 1 or 2)."""
+    if k >= 2:
+        return _lev_le2(a, b)
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    s, l = (a, b) if len(a) < len(b) else (b, a)
+    return any(s == l[:i] + l[i + 1:] for i in range(len(l)))
+
+
 def brand_typo(host):
-    """(brand, category) if a token is a near-miss spelling of a brand (edit distance <= 2), else None."""
-    for t in _tokens(host):
+    """(brand, category) if a token is a near-miss spelling of a brand, else None.
+    Rules (kept strict so ordinary words don't pass the gate):
+      - only the subdomain + the owner's name are checked, never the platform ending
+        (x.vercel.app: "vercel" is part of the ending, so it can't look like "parcel")
+      - brand words of 6+ letters only; 1 letter off for 6-7 letter brands, 2 for 8+ letters
+      - the first letter must match (ezpas, sunpas, turnpik, redelivr)"""
+    sub, name, _ = split_host(host)
+    for t in _tokens(f"{sub}.{name}"):
         if 5 <= len(t) <= 14:
             ts = set(t)
             for w, ws, c in TYPO_TARGETS:
-                if t != w and abs(len(t) - len(w)) <= 2 and len(ts & ws) >= len(ws) - 2 and _lev_le2(t, w):
+                k = 1 if len(w) <= 7 else 2
+                if (t != w and t[0] == w[0] and abs(len(t) - len(w)) <= k and len(ts & ws) >= len(ws) - k
+                        and _lev_le(t, w, k)):
                     return w, c
     return None
 
