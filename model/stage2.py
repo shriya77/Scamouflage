@@ -42,7 +42,7 @@ MAX_BOOST = 0.6
 # points; the sum is capped at MAX_BOOST. Tuned on real certificates: reports/stage2_eval.md.
 POINTS = [
     ("brand_names_on_cert", 2, 0.25, "{v} brand lookalikes on one certificate"),
-    ("brand_names_on_cert", 4, 0.15, "4+ brand lookalikes on one certificate"),
+    ("brand_names_on_cert", 4, 0.15, "a batch of 4+ lookalikes (kit-style certificate)"),
     ("brand_registered_domains", 3, 0.15, "brand names on {v} different registered domains"),
     ("fake_pattern_names_on_cert", 2, 0.10, "{v} fake '.com-'/'gov-' names on one certificate"),
     ("wildcard_brand", 1, 0.05, "wildcard certificate for a brand-word name"),

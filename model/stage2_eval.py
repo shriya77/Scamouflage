@@ -78,6 +78,30 @@ def cmd_explain(args):
         print(f"{h}: boost {e['boost']:.2f}  " + ("; ".join(e["reasons"]) or "(no points)"))
 
 
+def cmd_dump(args):
+    """Gated live certificates -> JSONL (first line: {"_meta": counts}). Lets the points table be
+    tuned in seconds instead of re-reading a 2 GB recording each time."""
+    n_certs = n_names = n_gated_names = n_gated = 0
+    t0 = time.perf_counter()
+    rows = []
+    for leaf in iter_certs(args.recording):
+        n_certs += 1
+        n_names += len({F.clean_host(n) for n in leaf.get("all_domains") or []} - {None})
+        g = gated_names(leaf)
+        if g:
+            n_gated += 1
+            n_gated_names += len(g)
+            rows.append({"all_domains": leaf.get("all_domains") or [], "gated": g})
+    meta = {"recording": args.recording, "certs": n_certs, "names": n_names, "gated_certs": n_gated,
+            "gated_names": n_gated_names, "seconds": round(time.perf_counter() - t0, 1)}
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"_meta": meta}) + "\n")
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    print(json.dumps(meta))
+
+
 def cmd_eval(args):
     known = None
     if args.labels_db:
@@ -160,6 +184,9 @@ def cmd_eval(args):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m model.stage2", description="Stage 2 certificate check")
     sub = p.add_subparsers(dest="cmd", required=True)
+    d = sub.add_parser("dump", help="gated live certificates from a recording -> JSONL")
+    d.add_argument("--recording", required=True)
+    d.add_argument("--out", required=True)
     e = sub.add_parser("explain", help="features + boost for one leaf_cert JSON file")
     e.add_argument("cert")
     e.add_argument("host", nargs="?")
@@ -170,7 +197,7 @@ def main(argv=None):
     v.add_argument("--show", type=int, default=40)
     v.add_argument("--out", help="write OUT.json")
     args = p.parse_args(argv)
-    {"explain": cmd_explain, "eval": cmd_eval}[args.cmd](args)
+    {"explain": cmd_explain, "eval": cmd_eval, "dump": cmd_dump}[args.cmd](args)
 
 
 if __name__ == "__main__":
