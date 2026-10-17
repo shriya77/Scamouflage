@@ -65,6 +65,33 @@ Swap your real function into your file (e.g. `model/model.py`) and run the consu
 - **Certificate Transparency**: 82 CT logs via [certstream-server-go](https://github.com/d-Rickyy-b/certstream-server-go) (incl. Let's Encrypt Static CT logs).
 - **Labels**: [Phishing.Database](https://github.com/mitchellkrogza/Phishing.Database) (392k domains, ~1.7k toll/USPS), [phishunt.io](https://phishunt.io/feed.txt), [OpenPhish](https://openphish.com/) community feed, [Unit 42 Smishing Triad IOCs](https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel) as seed patterns.
 
+## API (Role F)
+
+`api/server.py` (aiohttp, `127.0.0.1:8000`) reads the consumer's DB read-only and the JSON files in `data/`. Each data response has `"source": "live"`, or `"mock"` when its input is missing.
+
+- `GET /api/stats`, `/api/results`, `/api/leadtime`, `/api/hardware`: `stats.json`, `results.json`, `leadtime.json`, `hardware.json` as-is.
+- `GET /api/cpacf/live` (alias `/api/cpacf`): `cpacf_live.json` as-is (live CPACF counter rates).
+- `GET /api/alerts?limit=&since=&stage=`: newest alerts (max 1000). `stage=0` = already on a known scam list, `stage=1` also matches alerts with no stage.
+- `GET /api/alerts/summary`: `known_total` (stage 0), `new_total` (stage ≥ 1 or none), `total`, `stage_column`.
+- `GET /api/alerts/pubkey`: alert-signing public key `{key_id, alg: "Ed25519", public_key_pem}` from `data/alert_pubkey.pem`, `503` if missing.
+- `GET /api/alerts/{id}`: one alert by `cert_id`, `404` if unknown.
+- `GET /api/campaigns`: alerts grouped by domain template (e.g. `ezpass.com-*.win`).
+- `GET /api/health`: data dir, whether the DB and each JSON file exist.
+- `WS /ws/live`: `{"type": "stats"}` every 1 s, `{"type": "cpacf"}` every 2 s, `{"type": "alert"}` per new alert.
+- `GET /api/blocklist`, `GET /api/pubkey`: signed extension blocklist and its public key (see below).
+
+Start on the VM (from `~/scamouflage`):
+
+```bash
+SCAM_DB=/home/linux1/tolltrap/data/scamouflage.db .venv/bin/python api/server.py
+```
+
+From your laptop, open the tunnel, then use `http://localhost:8000`:
+
+```bash
+ssh -N -o ServerAliveInterval=30 -L 8000:127.0.0.1:8000 linux1@148.100.79.76
+```
+
 ## Browser extension
 
 The `extension/` folder is a Chrome extension that warns users when they open a flagged site.
