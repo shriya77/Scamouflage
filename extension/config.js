@@ -30,7 +30,8 @@ self.SCAMOUFLAGE_CONFIG = Object.freeze({
 
   // key_id -> base64 raw 32-byte Ed25519 public key.
   LIVE_KEYS: Object.freeze({
-    'tolltrap-dev-1': 'own+ycxN87eGut8RT7j+vnk1tsieRhNWDgJu6Dyx7xA=',
+    // keys/blocklist_ed25519.pem, generated on the VM on 2026-10-17.
+    'scamouflage-vm-1': 'eugJKnIzUa+nVMw0SCTIGIpPGUvlNfWGYkYutLzV3gM=',
   }),
   DEMO_KEYS: Object.freeze({
     'tolltrap-demo-1': '6uiw89e2W4xa99Ckt4vOJfxD7YVo0rhX+5GvpaEIsjM=',

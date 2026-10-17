@@ -8,7 +8,7 @@ If the key already exists it is kept and its public key is printed again.
 
 Options:
     --out PATH      where to write the private key
-    --key-id ID     the key_id to show in the config snippet (default tolltrap-dev-1)
+    --key-id ID     the key_id to show in the config snippet (default scamouflage-vm-1)
     --force         replace an existing key (every installed extension must then
                     get the new public key, or it will reject the list)
 """
@@ -56,7 +56,7 @@ def load_or_create(path: str, force: bool = False) -> tuple:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", default=DEFAULT_OUT)
-    p.add_argument("--key-id", default="tolltrap-dev-1")
+    p.add_argument("--key-id", default="scamouflage-vm-1")
     p.add_argument("--force", action="store_true")
     args = p.parse_args()
 

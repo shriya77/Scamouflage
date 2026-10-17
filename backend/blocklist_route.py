@@ -9,18 +9,24 @@ Response (the "envelope"):
     {
       "payload":   "<JSON string with version, generated_at, threshold, entries, allowlist>",
       "signature": "<base64 Ed25519 signature over the UTF-8 bytes of payload>",
-      "key_id":    "tolltrap-dev-1"
+      "key_id":    "scamouflage-vm-1"
     }
 
 We sign the payload *string* (not a re-serialized object), so the extension can
 verify the exact bytes it received before it even parses them.
 
-Mount it in an existing aiohttp app:
+GET /api/pubkey returns the matching PUBLIC key (and key_id) as JSON, so anyone
+can check the list without reading extension/config.js.
+
+Mount both in an existing aiohttp app:
     from backend.blocklist_route import setup_blocklist_route
     setup_blocklist_route(app)
 
 Or run it on its own for testing (localhost only):
-    TOLLTRAP_SIGNING_KEY=keys/blocklist_ed25519.pem python -m backend.blocklist_route
+    python -m backend.blocklist_route --port 8000
+
+The private key is keys/blocklist_ed25519.pem (made on the VM by
+`python -m backend.make_keys`); set TOLLTRAP_SIGNING_KEY to use another file.
 """
 from __future__ import annotations  # lets us write "str | None" on Python 3.9
 
@@ -68,7 +74,9 @@ REPO = os.path.dirname(HERE)
 
 DB_PATH = os.environ.get("SCAM_DB", os.path.join("data", "scamouflage.db"))
 THRESHOLD = float(os.environ.get("TOLLTRAP_BLOCKLIST_THRESHOLD", "0.85"))
-KEY_ID = os.environ.get("TOLLTRAP_KEY_ID", "tolltrap-dev-1")
+KEY_ID = os.environ.get("TOLLTRAP_KEY_ID", "scamouflage-vm-1")
+SIGNING_KEY_PATH = os.environ.get("TOLLTRAP_SIGNING_KEY") or os.path.join(
+    REPO, "keys", "blocklist_ed25519.pem")
 # "live" for the real CT stream, "replay" when serving a recorded replay DB.
 LIST_SOURCE = os.environ.get("TOLLTRAP_LIST_SOURCE") or (
     "replay" if "replay" in os.path.basename(DB_PATH) else "live")
@@ -329,7 +337,7 @@ def _get_key() -> Ed25519PrivateKey:
     fixing the env var / file and retrying works without a restart."""
     global _private_key
     if _private_key is None:
-        _private_key = load_private_key(os.environ.get("TOLLTRAP_SIGNING_KEY"))
+        _private_key = load_private_key(SIGNING_KEY_PATH)
     return _private_key
 
 
@@ -389,8 +397,30 @@ async def handle_blocklist(request: web.Request) -> web.Response:
                         headers={"Cache-Control": "no-store"})
 
 
+async def handle_pubkey(request: web.Request) -> web.Response:
+    """The blocklist's public key, derived from the private key we sign with,
+    so it can never disagree with the signatures we send."""
+    try:
+        pub = _get_key().public_key()
+    except SigningKeyError as e:
+        log.error("cannot load blocklist key: %s", e)
+        return web.json_response(
+            {"error": "blocklist signing key is not configured on the server"}, status=503)
+    pem = pub.public_bytes(serialization.Encoding.PEM,
+                           serialization.PublicFormat.SubjectPublicKeyInfo).decode("ascii")
+    raw = pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return web.json_response({
+        "key_id": KEY_ID,
+        "alg": "Ed25519",
+        "public_key_pem": pem,
+        "public_key_b64": base64.b64encode(raw).decode("ascii"),  # format in extension/config.js
+        "signs": "/api/blocklist",
+    })
+
+
 def setup_blocklist_route(app: web.Application) -> None:
     app.router.add_get("/api/blocklist", handle_blocklist)
+    app.router.add_get("/api/pubkey", handle_pubkey)
 
 
 def main() -> None:
