@@ -1,0 +1,153 @@
+{
+  "generated_at": "2026-10-17T20:06:28.670782Z",
+  "duration_seconds": 107.17,
+  "scams": {
+    "n_total": 100,
+    "n_ok": 57,
+    "n_not_found": 10,
+    "n_error": 33,
+    "median_age_days": 115.11,
+    "under_3_days": {
+      "count": 1,
+      "pct": 1.8
+    },
+    "under_7_days": {
+      "count": 1,
+      "pct": 1.8
+    },
+    "under_30_days": {
+      "count": 4,
+      "pct": 7.0
+    },
+    "registrar_counts": {
+      "Others": 45,
+      "NameSilo": 3,
+      "Dominet (HK)": 6,
+      "Gname": 2
+    },
+    "registrar_shares_pct": {
+      "Others": 80.36,
+      "NameSilo": 5.36,
+      "Dominet (HK)": 10.71,
+      "Gname": 3.57
+    },
+    "unit42_benchmark_pct": {
+      "Dominet (HK)": 68.06,
+      "NameSilo": 11.85,
+      "Gname": 7.94,
+      "Others": 12.15
+    }
+  },
+  "normals": {
+    "n_total": 10,
+    "median_age_years": 29.2,
+    "flagged_as_young": 0
+  },
+  "sample_evidence": [
+    {
+      "domain": "ticket-fedex.com",
+      "brand": "fedex",
+      "age_days": 372.981,
+      "registrar": "CNOBIN INFORMATION TECHNOLOGY LIMITED",
+      "risky_registrar": false
+    },
+    {
+      "domain": "tollymolly.store",
+      "brand": "toll",
+      "age_days": 1.4182,
+      "registrar": "HOSTINGER operations, UAB",
+      "risky_registrar": false
+    },
+    {
+      "domain": "brizy.site",
+      "brand": "irs",
+      "age_days": 3130.3069,
+      "registrar": "NameCheap, Inc.",
+      "risky_registrar": false
+    },
+    {
+      "domain": "copyrights-violation-help.com",
+      "brand": "violation",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "dhlthprivilege.com",
+      "brand": "dhl",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "lineclaimform.com",
+      "brand": "irs",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "myportfolio.com",
+      "brand": "irs",
+      "age_days": 10672.67,
+      "registrar": "Nom-iq Ltd. dba COM LAUDE",
+      "risky_registrar": false
+    },
+    {
+      "domain": "w3spaces.com",
+      "brand": "irs",
+      "age_days": 2126.5266,
+      "registrar": "Amazon Registrar, Inc.",
+      "risky_registrar": false
+    },
+    {
+      "domain": "39bb0e97b6013ba3c59244a4ef911898-irs-gov.com",
+      "brand": "irs",
+      "age_days": 57.0173,
+      "registrar": "IONOS SE",
+      "risky_registrar": false
+    },
+    {
+      "domain": "africanparcel.com",
+      "brand": "parcel",
+      "age_days": 1663.0445,
+      "registrar": "Dynadot Inc",
+      "risky_registrar": false
+    },
+    {
+      "domain": "baixingdajiudian.com",
+      "brand": "dhl",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "brightparcel.eu",
+      "brand": "parcel",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "clipass.sbs",
+      "brand": "ipass",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "cmvwp-ie.org",
+      "brand": "dhl",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    },
+    {
+      "domain": "co.com",
+      "brand": "epass",
+      "age_days": null,
+      "registrar": null,
+      "risky_registrar": false
+    }
+  ]
+}
