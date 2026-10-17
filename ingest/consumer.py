@@ -139,8 +139,19 @@ def _engine_state(cfg):
               f"stage1={info['stage1']} version={info['stage1_version']} t_high={info['t_high']} "
               f"t_low={info['t_low']} stage2={info['stage2']} ({info['stage2_version']}) "
               f"loaded in {info['load_s']} s, rss {info['rss_mb']} MB", flush=True)
-        _ENGINE = {"engine": eng, "verify": verify, "info": info, "refreshed": time.time()}
+        # Each worker gets its own random phase in the refresh cycle. With the same start time all
+        # workers refreshed (or fully reloaded, e.g. when tranco_top changed) in the same second:
+        # a 5.5 s processing-lag spike in the replay. Spread out, at most one reloads at a time.
+        _ENGINE = {"engine": eng, "verify": verify, "info": info,
+                   "refreshed": time.time() - refresh_phase(cfg.get("refresh_s", 900.0))}
     return _ENGINE
+
+
+def refresh_phase(refresh_s, rng=random):
+    """Seconds this worker pretends its last Stage 0 refresh is in the past: uniform in
+    [0, refresh_s), so the first refresh (and every one after it) lands at a different moment
+    in each worker."""
+    return rng.uniform(0.0, float(refresh_s))
 
 
 def init_engine_worker(cfg):

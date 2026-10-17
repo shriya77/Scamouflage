@@ -380,6 +380,14 @@ def test_unique_names_estimate():
     assert est["unique_names_per_day"] == round(100 * C.NAME_SAMPLE * 3600 / 600 * 24)
 
 
+
+def test_stage0_refresh_is_staggered_across_workers():
+    import random
+    rng = random.Random(7)
+    phases = [C.refresh_phase(900, rng) for _ in range(3)]
+    assert all(0 <= x < 900 for x in phases)
+    assert len({round(x) for x in phases}) == 3          # three workers, three different moments
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
