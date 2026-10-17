@@ -23,7 +23,13 @@ from aiohttp import web
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "data"))
-DB_PATH = DATA_DIR / "scamouflage.db"
+# SCAM_DB points straight at the consumer's DB; its folder holds the JSON files too.
+if os.environ.get("SCAM_DB"):
+    DB_PATH = Path(os.environ["SCAM_DB"])
+    DATA_DIR = Path(os.environ.get("DATA_DIR", DB_PATH.parent))
+else:
+    DB_PATH = DATA_DIR / "scamouflage.db"
+HOST = os.environ.get("API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("API_PORT", 8000))
 WS_POLL_SECONDS = 1.0
 
@@ -63,16 +69,20 @@ def decode_row(row):
     return out
 
 
-def fetch_alerts(limit=100, after_rowid=0):
+def fetch_alerts(limit=100, after_rowid=0, since=None):
+    """since: only alerts with seen_at > since (ISO string or unix seconds)."""
     conn = db()
     if conn is None:
         return None
     try:
-        rows = conn.execute(
-            "SELECT rowid AS _rowid, * FROM alerts WHERE rowid > ? "
-            "ORDER BY rowid DESC LIMIT ?",
-            (after_rowid, limit),
-        ).fetchall()
+        sql = "SELECT rowid AS _rowid, * FROM alerts WHERE rowid > ?"
+        args = [after_rowid]
+        if since:
+            sql += " AND seen_at > ?"
+            args.append(float(since) if since.replace(".", "", 1).isdigit() else since)
+        sql += " ORDER BY rowid DESC LIMIT ?"
+        args.append(limit)
+        rows = conn.execute(sql, args).fetchall()
         return [decode_row(r) for r in rows]
     except sqlite3.OperationalError:  # table not created yet
         return None
@@ -179,10 +189,17 @@ json_file_route("/api/hardware", "hardware.json")
 
 @routes.get("/api/alerts")
 async def alerts(request):
-    limit = min(int(request.query.get("limit", 100)), 1000)
-    rows = fetch_alerts(limit)
+    try:
+        limit = min(int(request.query.get("limit", 100)), 1000)
+    except ValueError:
+        limit = 100
+    since = request.query.get("since")
+    rows = fetch_alerts(limit, since=since)
     if rows is None:
-        return ok({"items": MOCK_ALERTS[:limit]}, "mock")
+        items = MOCK_ALERTS
+        if since:
+            items = [a for a in items if a["seen_at"] > since]
+        return ok({"items": items[:limit]}, "mock")
     return ok({"items": rows}, "live")
 
 
@@ -274,9 +291,17 @@ async def cors(request, handler):
 def make_app():
     app = web.Application(middlewares=[cors])
     app.add_routes(routes)
+    try:  # Shriya's blocklist route for the Chrome extension
+        import sys
+        sys.path.insert(0, str(ROOT))
+        from backend.blocklist_route import setup_blocklist_route
+        setup_blocklist_route(app)
+        print("blocklist route: on")
+    except ImportError as e:
+        print(f"blocklist route: off ({e})")
     return app
 
 
 if __name__ == "__main__":
-    print(f"Scamouflage API on :{PORT}  data_dir={DATA_DIR}")
-    web.run_app(make_app(), host="0.0.0.0", port=PORT)
+    print(f"Scamouflage API on {HOST}:{PORT}  db={DB_PATH}  data_dir={DATA_DIR}")
+    web.run_app(make_app(), host=HOST, port=PORT)
