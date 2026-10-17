@@ -65,6 +65,7 @@ seen(domain PK, first_cert_seen, cert_id)                    -- written by consu
 
 - `seen` holds **every toll/USPS-brand domain**, plus a deterministic **1% sample** of all other domains. (Storing every domain would fill the disk.)
 - Lead time for a labelled domain = `labels.first_seen - seen.first_cert_seen`.
+- Alerts with `stage = 0` mean "already on a known scam list" (Stage 0, `model/stage0.py`) when we saw the certificate. They must **not** count toward lead-time / "caught early" stats; only `stage >= 1` alerts can.
 - **Only the consumer writes `alerts` and `seen`.** The API reads them only.
 
 ## 4. JSON files in `data/`
