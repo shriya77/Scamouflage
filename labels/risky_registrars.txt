@@ -1,0 +1,5 @@
+# Known high-risk registrars identified in smishing campaign intelligence (Unit 42 IOCs)
+# Matched case-insensitively (contains match) against registrar name in RDAP
+Dominet
+NameSilo
+Gname
