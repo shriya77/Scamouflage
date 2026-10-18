@@ -245,6 +245,126 @@ async function ensureSyncAlarm() {
 }
 
 // ---------------------------------------------------------------------------
+// A2. WEBSOCKET REAL-TIME SYNC (/ws/live)
+// ---------------------------------------------------------------------------
+let liveWs = null;
+let wsReconnectTimer = null;
+let wsBackoffMs = 1000;
+
+function wsUrl(backendUrl) {
+  const base = (backendUrl || '').replace(/\/+$/, '');
+  if (base.startsWith('https://')) return 'wss://' + base.slice(8) + '/ws/live';
+  if (base.startsWith('http://')) return 'ws://' + base.slice(7) + '/ws/live';
+  return 'ws://' + base + '/ws/live';
+}
+
+function scheduleWsReconnect() {
+  if (wsReconnectTimer) return;
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsBackoffMs = Math.min(wsBackoffMs * 1.5, 30000);
+    connectWebSocket();
+  }, wsBackoffMs);
+}
+
+function reconnectWebSocket() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+  if (liveWs) {
+    try { liveWs.close(); } catch (_) {}
+    liveWs = null;
+  }
+  wsBackoffMs = 1000;
+  connectWebSocket();
+}
+
+function round4(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+async function handleLiveAlert(alertData) {
+  const rawDomain = alertData && (alertData.domain || (Array.isArray(alertData.domains) && alertData.domains[0]));
+  if (!rawDomain) return;
+  const hostname = M.normalizeHostname(rawDomain);
+  if (!hostname) return;
+
+  await ensureLoaded();
+  if (!state.loaded) return;
+
+  const hash = await M.sha256Hex(hostname, crypto.subtle);
+  const entry = {
+    h: hash,
+    match_subdomains: true,
+    score: typeof alertData.score === 'number' ? round4(alertData.score) : 0.95,
+    reasons: Array.isArray(alertData.reasons) ? alertData.reasons : ['Live threat alert push'],
+    observed_at: alertData.seen_at ? String(alertData.seen_at) : new Date().toISOString(),
+    source: 'live-push',
+  };
+
+  state.entries.set(hash, entry);
+  resultCache.clear();
+  console.log('[Scamouflage WS] Live push alert applied for:', hostname, '(hash: ' + hash.slice(0, 8) + '...)');
+
+  // Persist into chrome.storage.local
+  const saved = (await chrome.storage.local.get(K_LIVE_LIST))[K_LIVE_LIST];
+  if (saved && saved.envelope && saved.envelope.payload) {
+    try {
+      const payload = JSON.parse(saved.envelope.payload);
+      if (Array.isArray(payload.entries)) {
+        if (!payload.entries.some((e) => e.h === hash)) {
+          payload.entries.push(entry);
+          saved.envelope.payload = JSON.stringify(payload);
+          await chrome.storage.local.set({ [K_LIVE_LIST]: saved });
+        }
+      }
+    } catch (_) {}
+  }
+}
+
+async function connectWebSocket() {
+  if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  const settings = await getSettings();
+  if (settings.demoMode) return; // Demo mode never makes outside connections
+
+  const url = wsUrl(settings.backendUrl);
+  try {
+    liveWs = new WebSocket(url);
+  } catch (err) {
+    scheduleWsReconnect();
+    return;
+  }
+
+  liveWs.onopen = () => {
+    console.log('[Scamouflage WS] Connected to live alert stream:', url);
+    wsBackoffMs = 1000;
+  };
+
+  liveWs.onmessage = async (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'alert' && msg.data) {
+        await handleLiveAlert(msg.data);
+      }
+    } catch (err) {
+      console.warn('[Scamouflage WS] Error handling message:', err);
+    }
+  };
+
+  liveWs.onclose = () => {
+    liveWs = null;
+    scheduleWsReconnect();
+  };
+
+  liveWs.onerror = () => {
+    try { liveWs.close(); } catch (_) {}
+  };
+}
+
+// ---------------------------------------------------------------------------
 // B. CHECK
 // ---------------------------------------------------------------------------
 async function getAllowedHosts() {
@@ -403,11 +523,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.runtime.onInstalled.addListener(() => {
   ensureSyncAlarm();
+  connectWebSocket();
   syncNow('install');
 });
 
 chrome.runtime.onStartup.addListener(() => {
   ensureSyncAlarm();
+  connectWebSocket();
   syncNow('startup');
 });
 
@@ -421,6 +543,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     settingsCache = null;
     resultCache.clear();
     reloadList().then(() => syncNow('settings-changed'));
+    reconnectWebSocket();
   }
   if (area === 'session' && changes[K_ALLOWED]) {
     resultCache.clear();
@@ -479,6 +602,7 @@ async function handleMessage(msg) {
       // Re-read settings first: the options page may have just saved them.
       settingsCache = null;
       await reloadList();
+      reconnectWebSocket();
       return { sync: await syncNow('manual'), list: await getListInfo() };
 
     case 'allowHost': {
@@ -526,5 +650,6 @@ async function handleMessage(msg) {
   }
 }
 
-// Every time the worker starts: make sure the 30-minute alarm exists.
+// Every time the worker starts: make sure the 30-minute alarm exists and WebSocket is connected.
 ensureSyncAlarm();
+connectWebSocket();

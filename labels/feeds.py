@@ -95,7 +95,11 @@ def load_brands():
 
 try:
     import tldextract
-    _EXTRACT = tldextract.TLDExtract(cache_dir=os.path.join(DATA, ".tld_cache"))
+    _EXTRACT = tldextract.TLDExtract(
+        suffix_list_urls=(),
+        cache_dir=os.path.join(DATA, ".tld_cache"),
+        include_psl_private_domains=True
+    )
 except Exception:  # package missing: crude fallback, good enough for most names
     _EXTRACT = None
 
