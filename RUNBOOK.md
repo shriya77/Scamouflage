@@ -14,7 +14,7 @@ cd ~/scamouflage
 |---|---|---|---|
 | `stream` | CT stream (certstream-server-go, :8080) | `bash infra/start_stream.sh` | `data/stream.log` |
 | `consumer` | consumer + detection engine | `bash infra/start_consumer.sh ...` (below) | `data/consumer.log`, `data/consumer.supervise.log` |
-| `cc-api` | API + website on 127.0.0.1:8000, auto-restart | `bash infra/start_api.sh` | `data/api.log`, `data/api.supervise.log` |
+| `cc-api` | API + website on 0.0.0.0:8000 (public), auto-restart | `bash infra/start_api.sh` | `data/api.log`, `data/api.supervise.log` |
 | `cc-leadtime` | lead-time stat, hourly (`model/lead_time.py`) | see "Lead time" | `~/cc-logs/leadtime.log` |
 | `cc-maint` | log rotation, disk check, DB backups, hourly | `tmux new -d -s cc-maint 'bash ~/scamouflage/infra/maintenance.sh'` | `data/maintenance.log` |
 | `cpacf` | live CPACF counters (Role D) | see README | `data/cpacf.log` |
@@ -75,21 +75,37 @@ Note: a consumer started before the supervised script existed has no auto-restar
 ## Start / stop the API + website
 
 ```bash
-bash infra/start_api.sh                          # tmux cc-api, 127.0.0.1:8000, auto-restart
+bash infra/start_api.sh                          # tmux cc-api, 0.0.0.0:8000 (public), auto-restart
 touch ~/tolltrap/data/api.stop; tmux send-keys -t cc-api C-c    # stop for good
+```
+
+The default is all interfaces, so the public site stays up after a restart. `API_HOST=127.0.0.1 bash infra/start_api.sh`
+keeps it VM-only (tunnel only).
+
+Restart (e.g. after `git pull`). Keep the stop file until the session has closed, or the auto-restart
+loop starts the old process again:
+
+```bash
+touch ~/tolltrap/data/api.stop; tmux send-keys -t cc-api C-c
+while tmux has-session -t cc-api 2>/dev/null; do sleep 1; done
+rm -f ~/tolltrap/data/api.stop; bash infra/start_api.sh
+curl -s http://<vm-ip>:8000/health      # from your laptop: should answer
 ```
 
 Check: `curl -s localhost:8000/health`, `curl -s 'localhost:8000/api/alerts?limit=3'`, `curl -s localhost:8000/ | head -3`.
 
 ## Seeing the website (demo)
 
-Port 8000 is not reachable from the internet (the VM firewall only lets SSH in). On the demo laptop:
+Public: <http://148.100.79.76:8000/> (the VM firewall allows port 8000). The extension's default backend is
+the same address.
+
+Fallback if the port is ever closed, or the API was started with `API_HOST=127.0.0.1`: a tunnel from the demo laptop,
 
 ```bash
 ssh -N -L 8000:localhost:8000 user@<vm-ip>
 ```
 
-then open <http://localhost:8000/>. The browser extension uses `http://localhost:8000/api/blocklist` through the same tunnel.
+then open <http://localhost:8000/>, and set the extension's backend to `http://localhost:8000` in its options.
 
 ## Abuse reports to the registrar ("Report this site" in the extension)
 
