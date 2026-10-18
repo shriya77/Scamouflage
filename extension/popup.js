@@ -46,6 +46,9 @@
     return url;
   }
 
+  // Hostname the "Go back" button leaves (set when a continued-to site is shown).
+  let goBackHost = null;
+
   // ---- Step 2: render the site status ---------------------------------------
   function renderStatus(check, list) {
     const box = $('status');
@@ -58,6 +61,7 @@
     reasonsEl.textContent = '';
     reasonsEl.hidden = true;
     $('score-meter').hidden = true;
+    $('status-go-back').hidden = true;
 
     switch (check.status) {
       case 'flagged': {
@@ -72,7 +76,10 @@
           detail.textContent = 'Matched through ' + check.matched + '.';
         }
         if (check.userAllowed) {
-          detail.textContent += ' You chose to continue to this site for this session.';
+          detail.textContent = (detail.textContent ? detail.textContent + ' ' : '') +
+            'You chose to continue to this site for this session.';
+          $('status-go-back').hidden = false;
+          goBackHost = check.hostname;
         }
         for (const code of entry.reasons || []) {
           const li = document.createElement('li');
@@ -199,6 +206,15 @@
     const url = (settings && settings.dashboardUrl) || CONFIG.DEFAULT_DASHBOARD_URL;
     // Plain link to the dashboard: no current-site info in the URL.
     if (/^https?:\/\//i.test(url)) chrome.tabs.create({ url });
+  });
+
+  // "Go back" after "Continue anyway": background.js takes the tab to the last
+  // page that wasn't flagged (or closes it) and warns about this site again.
+  $('status-go-back').addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || tab.id === undefined) return;
+    await chrome.runtime.sendMessage({ type: 'leaveFlaggedSite', tabId: tab.id, hostname: goBackHost });
+    window.close();
   });
 
   $('options').addEventListener('click', (event) => {

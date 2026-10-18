@@ -491,6 +491,29 @@ async function handleMessage(msg) {
       return { ok: true };
     }
 
+    case 'leaveFlaggedSite': {
+      // From the popup's "Go back" on a site the user continued to.
+      const tabId = Number(msg.tabId);
+      const hostname = M.normalizeHostname(String(msg.hostname || ''));
+      if (hostname) {
+        // Changed their mind: warn again next time they open it.
+        const allowed = (await getAllowedHosts()).filter((h) => h !== hostname);
+        await chrome.storage.session.set({ [K_ALLOWED]: allowed });
+      }
+      const safeKey = K_SAFE_PREFIX + tabId;
+      const back = (await chrome.storage.session.get(safeKey))[safeKey];
+      if (back && /^https?:/i.test(back)) {
+        await chrome.tabs.update(tabId, { url: back });
+      } else {
+        // Nothing safe to go back to: close the tab (keep the window open).
+        const tab = await chrome.tabs.get(tabId);
+        const tabsInWindow = await chrome.tabs.query({ windowId: tab.windowId });
+        if (tabsInWindow.length <= 1) await chrome.tabs.create({ windowId: tab.windowId });
+        await chrome.tabs.remove(tabId);
+      }
+      return { ok: true };
+    }
+
     case 'getAllowedHosts':
       return { hosts: await getAllowedHosts() };
 
