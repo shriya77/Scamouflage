@@ -13,7 +13,13 @@ import ipaddress
 import math
 import os
 import re
+import unicodedata
 from collections import Counter
+
+try:
+    import idna
+except ImportError:
+    idna = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -71,6 +77,72 @@ _HOST_OK = re.compile(r"^[a-z0-9.-]+$")
 _FAKE_PREFIX = re.compile(r"(com|gov)-")
 _FAKE_TLD_IN_HOST = re.compile(r"\.(com|gov|org|net)-")
 
+# Unicode lookalike homoglyphs / confusables mapped to ASCII Latin equivalents (UTS #39)
+# True visual lookalikes only. Non-lookalikes (e.g. Cyrillic н, г, д, л, з) are excluded.
+TRUE_LOOKALIKES = {
+    # Cyrillic lowercase true twins
+    0x0430: "a", 0x0441: "c", 0x0435: "e", 0x0450: "e", 0x0451: "e",
+    0x0456: "i", 0x0457: "i", 0x0458: "j", 0x043a: "k", 0x043e: "o",
+    0x0440: "p", 0x0455: "s", 0x0445: "x", 0x0443: "y", 0x04bb: "h",
+    0x0501: "d", 0x051b: "q", 0x051d: "w",
+    # Greek lowercase true twins
+    0x03b1: "a", 0x03b5: "e", 0x03b9: "i", 0x03ba: "k", 0x03bf: "o",
+    0x03c1: "p", 0x03bd: "v", 0x03c5: "u", 0x03c7: "x", 0x03c9: "w",
+    # Dotless i
+    0x0131: "i",
+}
+# Fullwidth Latin
+for _c in range(0xff41, 0xff5b):
+    TRUE_LOOKALIKES[_c] = chr(_c - 0xff41 + ord("a"))
+for _c in range(0xff10, 0xff1a):
+    TRUE_LOOKALIKES[_c] = chr(_c - 0xff10 + ord("0"))
+
+
+def _label_skeleton(label):
+    if not label or (label.isascii() and not label.startswith("xn--")):
+        return label
+    u = label
+    if label.startswith("xn--"):
+        try:
+            if idna is not None:
+                u = idna.decode(label)
+            else:
+                u = label.encode("ascii").decode("idna")
+        except Exception:
+            return label
+    u = u.lower()
+    has_ascii = any(("a" <= c <= "z" or "0" <= c <= "9") for c in u)
+    chars = []
+    has_unmapped = False
+    for ch in u:
+        cp = ord(ch)
+        if ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == "-":
+            chars.append(ch)
+        elif cp in TRUE_LOOKALIKES:
+            chars.append(TRUE_LOOKALIKES[cp])
+        else:
+            chars.append(" ")
+            has_unmapped = True
+
+    # If completely foreign script without Latin letters and has unmapped letters, keep original
+    if not has_ascii and has_unmapped:
+        return label
+
+    s = "".join(chars)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def to_skeleton(host):
+    """Decode punycode (xn--) and normalize mixed-script Unicode confusables to ASCII Latin."""
+    if not host:
+        return ""
+    h = str(host).strip().lower()
+    # Fast path: pure ASCII with no punycode has no homoglyphs
+    if h.isascii() and "xn--" not in h:
+        return h
+    labels = [_label_skeleton(p) for p in h.split(".")]
+    return ".".join(labels)
+
 try:
     import tldextract
     # private PSL domains ON: "x.github.io" is its own registered domain, so shared hosting
@@ -93,7 +165,17 @@ def clean_host(raw):
         h = h[2:]
     if h.startswith("www."):
         h = h[4:]
-    if not h or "." not in h or not _HOST_OK.match(h) or ".." in h:
+    if not h or "." not in h:
+        return None
+    if not _HOST_OK.match(h):
+        try:
+            if idna is not None:
+                h = ".".join(idna.encode(p).decode("ascii") if not _HOST_OK.match(p) else p for p in h.split("."))
+            else:
+                h = ".".join(p.encode("idna").decode("ascii") if not _HOST_OK.match(p) else p for p in h.split("."))
+        except Exception:
+            return None
+    if not _HOST_OK.match(h) or ".." in h:
         return None
     try:
         ipaddress.ip_address(h)
@@ -164,6 +246,16 @@ def brand_hits(text):
                 hits.append((w, c))
         elif w in text:
             hits.append((w, c))
+    if not hits:
+        skel = to_skeleton(text)
+        if skel and skel != text:
+            skel_tokens = _tokens(skel)
+            for w, c in BRANDS:
+                if len(w) <= 4:
+                    if any(t.startswith(w) for t in skel_tokens):
+                        hits.append((w, c))
+                elif w in skel:
+                    hits.append((w, c))
     return hits
 
 
@@ -177,19 +269,29 @@ def whole_word_brand(host):
     global _LURE_SET
     if _LURE_SET is None:
         _LURE_SET = set(LURE_WORDS)
-    sub, name, _ = split_host(host)
-    for t in _tokens(f"{sub}.{name}"):
-        for w, c in BRANDS:
-            if t == w:
-                return w, c
-            if t.startswith(w) and len(t) > len(w):
-                rest = t[len(w):]
-                if rest.isdigit() or rest in _LURE_SET:
+
+    def _check(h):
+        sub, name, _ = split_host(h)
+        for t in _tokens(f"{sub}.{name}"):
+            for w, c in BRANDS:
+                if t == w:
                     return w, c
-            if t.endswith(w) and len(t) > len(w):
-                rest = t[:-len(w)]
-                if rest.isdigit() or rest in _LURE_SET:
-                    return w, c
+                if t.startswith(w) and len(t) > len(w):
+                    rest = t[len(w):]
+                    if rest.isdigit() or rest in _LURE_SET:
+                        return w, c
+                if t.endswith(w) and len(t) > len(w):
+                    rest = t[:-len(w)]
+                    if rest.isdigit() or rest in _LURE_SET:
+                        return w, c
+        return None
+
+    res = _check(host)
+    if res:
+        return res
+    skel = to_skeleton(host)
+    if skel and skel != host:
+        return _check(skel)
     return None
 
 
@@ -239,15 +341,24 @@ def brand_typo(host):
         (x.vercel.app: "vercel" is part of the ending, so it can't look like "parcel")
       - brand words of 6+ letters only; 1 letter off for 6-7 letter brands, 2 for 8+ letters
       - the first letter must match (ezpas, sunpas, turnpik, redelivr)"""
-    sub, name, _ = split_host(host)
-    for t in _tokens(f"{sub}.{name}"):
-        if 5 <= len(t) <= 14:
-            ts = set(t)
-            for w, ws, c in TYPO_TARGETS:
-                k = 1 if len(w) <= 7 else 2
-                if (t != w and t[0] == w[0] and abs(len(t) - len(w)) <= k and len(ts & ws) >= len(ws) - k
-                        and _lev_le(t, w, k)):
-                    return w, c
+    def _check(h):
+        sub, name, _ = split_host(h)
+        for t in _tokens(f"{sub}.{name}"):
+            if 5 <= len(t) <= 14:
+                ts = set(t)
+                for w, ws, c in TYPO_TARGETS:
+                    k = 1 if len(w) <= 7 else 2
+                    if (t != w and t[0] == w[0] and abs(len(t) - len(w)) <= k and len(ts & ws) >= len(ws) - k
+                            and _lev_le(t, w, k)):
+                        return w, c
+        return None
+
+    res = _check(host)
+    if res:
+        return res
+    skel = to_skeleton(host)
+    if skel and skel != host:
+        return _check(skel)
     return None
 
 
@@ -260,24 +371,33 @@ def fake_pattern(host):
 def brand_gate(host):
     """The brand-word gate (MODEL_SPEC §3). Returns (passes, brand, category).
     Passes if the name has a toll/delivery/gov brand word, a misspelled brand, or a fake '.com-'/'gov-' pattern."""
-    # order: real brand name (dhl, ezpass, usps) > misspelled real brand > dictionary word as a whole word
-    #        (creative-parcel) > dictionary word hidden inside another word (keepassdx) > fake pattern
-    hits = brand_hits(host)
-    real = [h for h in hits if h[0] not in GENERIC_WORDS]
-    whole = whole_word_brand(host)
-    if whole and whole[0] not in GENERIC_WORDS:
-        return True, whole[0], whole[1]
-    if real:                       # real brand glued to other letters (fedexvjsozl.shop) keeps its category
-        return True, real[0][0], real[0][1]
-    typo = brand_typo(host)
-    if typo:
-        return True, typo[0], typo[1]
-    if whole:                      # dictionary word standing alone (creative-parcel.pages.dev)
-        return True, whole[0], whole[1]
-    if hits:                       # only a dictionary word hidden inside another word (keepassdx -> epass)
-        return True, None, "other"
-    if fake_pattern(host):
-        return True, None, "other"
+    def _gate_inner(h):
+        hits = brand_hits(h)
+        real = [hit for hit in hits if hit[0] not in GENERIC_WORDS]
+        whole = whole_word_brand(h)
+        if whole and whole[0] not in GENERIC_WORDS:
+            return True, whole[0], whole[1]
+        if real:                       # real brand glued to other letters (fedexvjsozl.shop) keeps its category
+            return True, real[0][0], real[0][1]
+        typo = brand_typo(h)
+        if typo:
+            return True, typo[0], typo[1]
+        if whole:                      # dictionary word standing alone (creative-parcel.pages.dev)
+            return True, whole[0], whole[1]
+        if hits:                       # only a dictionary word hidden inside another word (keepassdx -> epass)
+            return True, None, "other"
+        if fake_pattern(h):
+            return True, None, "other"
+        return False, None, None
+
+    res = _gate_inner(host)
+    if res[0]:
+        return res
+    skel = to_skeleton(host)
+    if skel and skel != host:
+        res_skel = _gate_inner(skel)
+        if res_skel[0]:
+            return res_skel
     return False, None, None
 
 

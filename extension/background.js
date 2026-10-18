@@ -245,6 +245,122 @@ async function ensureSyncAlarm() {
 }
 
 // ---------------------------------------------------------------------------
+// A2. WEBSOCKET REAL-TIME SYNC (/ws/live)
+//
+// Uses the backend's live alert stream as a push signal. When an alert arrives,
+// we trigger syncNow('live-push') (debounced to at most once per 10 s).
+//
+// Security & Integrity:
+//   - Pushed events are NOT trusted directly; they only signal a signed re-sync.
+//   - Every blocklist update remains cryptographically verified with Ed25519.
+//   - All server-side guards (0.85 threshold, tranco_top, PSL tenant boundaries,
+//     allowlist) remain strictly enforced.
+//   - Minimum Chrome 116+ maintains active service worker while messages flow.
+//   - The 30-minute sync alarm remains active as an offline fallback.
+// ---------------------------------------------------------------------------
+let liveWs = null;
+let wsReconnectTimer = null;
+let wsBackoffMs = 1000;
+let pushSyncTimer = null;
+let lastPushSyncTime = 0;
+const PUSH_SYNC_COOLDOWN_MS = 10000; // 10 s debounce/cooldown
+
+function wsUrl(backendUrl) {
+  const base = (backendUrl || '').replace(/\/+$/, '');
+  if (base.startsWith('https://')) return 'wss://' + base.slice(8) + '/ws/live';
+  if (base.startsWith('http://')) return 'ws://' + base.slice(7) + '/ws/live';
+  return 'ws://' + base + '/ws/live';
+}
+
+function onLiveAlertPushed() {
+  const now = Date.now();
+  const elapsed = now - lastPushSyncTime;
+
+  if (elapsed >= PUSH_SYNC_COOLDOWN_MS) {
+    lastPushSyncTime = now;
+    if (pushSyncTimer) {
+      clearTimeout(pushSyncTimer);
+      pushSyncTimer = null;
+    }
+    syncNow('live-push');
+  } else if (!pushSyncTimer) {
+    pushSyncTimer = setTimeout(() => {
+      pushSyncTimer = null;
+      lastPushSyncTime = Date.now();
+      syncNow('live-push');
+    }, PUSH_SYNC_COOLDOWN_MS - elapsed);
+  }
+}
+
+function scheduleWsReconnect() {
+  if (wsReconnectTimer) return;
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsBackoffMs = Math.min(wsBackoffMs * 1.5, 30000);
+    connectWebSocket();
+  }, wsBackoffMs);
+}
+
+function reconnectWebSocket() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+  if (liveWs) {
+    const old = liveWs;
+    liveWs = null;
+    try { old.close(); } catch (_) {}
+  }
+  wsBackoffMs = 1000;
+  connectWebSocket();
+}
+
+async function connectWebSocket() {
+  if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  const settings = await getSettings();
+  if (settings.demoMode) return; // Demo mode never makes outside connections
+
+  const url = wsUrl(settings.backendUrl);
+  let socket;
+  try {
+    socket = new WebSocket(url);
+  } catch (err) {
+    scheduleWsReconnect();
+    return;
+  }
+  liveWs = socket;
+
+  socket.onopen = () => {
+    if (liveWs !== socket) return;
+    console.log('[Scamouflage WS] Connected to live alert stream:', url);
+    wsBackoffMs = 1000;
+  };
+
+  socket.onmessage = (event) => {
+    if (liveWs !== socket) return;
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'alert') {
+        onLiveAlertPushed();
+      }
+    } catch (_) {}
+  };
+
+  socket.onclose = () => {
+    if (liveWs === socket) {
+      liveWs = null;
+      scheduleWsReconnect();
+    }
+  };
+
+  socket.onerror = () => {
+    try { socket.close(); } catch (_) {}
+  };
+}
+
+// ---------------------------------------------------------------------------
 // B. CHECK
 // ---------------------------------------------------------------------------
 async function getAllowedHosts() {
@@ -403,11 +519,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.runtime.onInstalled.addListener(() => {
   ensureSyncAlarm();
+  connectWebSocket();
   syncNow('install');
 });
 
 chrome.runtime.onStartup.addListener(() => {
   ensureSyncAlarm();
+  connectWebSocket();
   syncNow('startup');
 });
 
@@ -421,6 +539,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     settingsCache = null;
     resultCache.clear();
     reloadList().then(() => syncNow('settings-changed'));
+    reconnectWebSocket();
   }
   if (area === 'session' && changes[K_ALLOWED]) {
     resultCache.clear();
@@ -526,5 +645,6 @@ async function handleMessage(msg) {
   }
 }
 
-// Every time the worker starts: make sure the 30-minute alarm exists.
+// Every time the worker starts: make sure the 30-minute alarm exists and WebSocket is connected.
 ensureSyncAlarm();
+connectWebSocket();

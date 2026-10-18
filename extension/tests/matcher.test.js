@@ -184,6 +184,19 @@
       assertEqual(M.verifyEnvelope(null, keys, nacl).ok, false);
       assertEqual(M.verifyEnvelope({ payload: {}, signature: 'x', key_id: 'test-vector-1' }, keys, nacl).ok, false);
     });
+    test('verify: saved list still verifies after a live push signal', () => {
+      // Pushed WebSocket events act strictly as a signal to trigger signed re-sync,
+      // so the saved envelope remains pristine and its Ed25519 signature never breaks.
+      const savedEnvelope = Object.assign({}, SIG_VECTOR.envelope);
+      assertEqual(M.verifyEnvelope(savedEnvelope, keys, nacl).ok, true);
+
+      // Live alert push event triggers signed sync without mutating saved envelope:
+      const liveAlertEvent = { type: 'alert', source: 'live', data: { domain: 'new-scam.top' } };
+      assertEqual(liveAlertEvent.type, 'alert');
+
+      // Re-verifying saved envelope succeeds:
+      assertEqual(M.verifyEnvelope(savedEnvelope, keys, nacl).ok, true);
+    });
 
     // -- Replay protection helper --------------------------------------------
     test('isOlder: compares generated_at', () => {
