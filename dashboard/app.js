@@ -25,6 +25,7 @@ const CONFIG = {
   EXTENSION_URL: '#',            // optional: a download link for the extension folder (shows a Download button)
   POLL_MS: 2000,
   CATCHES_LIMIT: 15,
+  CATCHES_POLL_MS: 5000,         // "Latest catches" refreshes itself while that tab is open
 };
 // Add ?replay to the URL to run a clearly-labelled demo replay (sample domains + a sample catch).
 const REPLAY = new URLSearchParams(location.search).has('replay');
@@ -613,13 +614,16 @@ function fmtAge(days) {
 }
 
 const roll = { openId: null, seen: null };
-async function loadCatches() {
+async function loadCatches(auto = false) {
   const btn = $('#refresh-btn');
-  btn.disabled = true; btn.textContent = 'Checking…';
+  if (!auto) { btn.disabled = true; btn.textContent = 'Checking…'; }
   const raw = await getJSON('catches');
   if (location.hash.slice(1) === 'catches') setStatus(raw ? 'live' : 'offline', raw ? 'Live' : 'Offline');
-  renderCatches(raw ? latestScams(raw) : [], !!raw);
-  btn.disabled = false; btn.textContent = 'Check for new ones';
+  // An automatic refresh waits while someone is selecting a domain, so the selection isn't wiped
+  const sel = getSelection();
+  const selecting = auto && sel && !sel.isCollapsed && $('.roll').contains(sel.anchorNode);
+  if (!selecting) renderCatches(raw ? latestScams(raw) : [], !!raw);
+  if (!auto) { btn.disabled = false; btn.textContent = 'Check for new ones'; }
 }
 function renderCatches(list, reached) {
   const fresh = list.filter(a => !isKnown(a)), known = list.filter(isKnown);
@@ -719,11 +723,12 @@ function showTab(name) {
     pollTimer = setInterval(loadDashboard, CONFIG.POLL_MS);
   } else if (name === 'catches') {
     loadCatches();
+    pollTimer = setInterval(() => loadCatches(true), CONFIG.CATCHES_POLL_MS);
   }
   window.scrollTo({ top: 0 });
 }
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
-$('#refresh-btn').addEventListener('click', loadCatches);
+$('#refresh-btn').addEventListener('click', () => loadCatches());
 if (CONFIG.EXTENSION_URL && CONFIG.EXTENSION_URL !== '#') {
   $('#install-btn').href = CONFIG.EXTENSION_URL;
   $('#install-btn').hidden = false;
