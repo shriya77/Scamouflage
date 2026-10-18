@@ -77,55 +77,71 @@ _HOST_OK = re.compile(r"^[a-z0-9.-]+$")
 _FAKE_PREFIX = re.compile(r"(com|gov)-")
 _FAKE_TLD_IN_HOST = re.compile(r"\.(com|gov|org|net)-")
 
-# Unicode lookalike homoglyphs / confusables mapped to ASCII Latin equivalents
-CONFUSABLES_MAP = {
-    # Cyrillic lowercase
+# Unicode lookalike homoglyphs / confusables mapped to ASCII Latin equivalents (UTS #39)
+# True visual lookalikes only. Non-lookalikes (e.g. Cyrillic н, г, д, л, з) are excluded.
+TRUE_LOOKALIKES = {
+    # Cyrillic lowercase true twins
     0x0430: "a", 0x0441: "c", 0x0435: "e", 0x0450: "e", 0x0451: "e",
-    0x0456: "i", 0x0457: "i", 0x0458: "j", 0x043e: "o", 0x0440: "p",
-    0x0445: "x", 0x0443: "y", 0x0455: "s", 0x04bb: "h", 0x0501: "d",
-    0x051b: "q", 0x051d: "w", 0x0432: "b", 0x043a: "k", 0x043c: "m",
-    0x043d: "h", 0x0442: "t", 0x0433: "r", 0x0434: "d", 0x0437: "z",
-    0x043b: "l", 0x043f: "n",
-    # Cyrillic uppercase
-    0x0410: "a", 0x0412: "b", 0x0415: "e", 0x041a: "k", 0x041c: "m",
-    0x041d: "h", 0x041e: "o", 0x0420: "p", 0x0421: "c", 0x0422: "t",
-    0x0423: "y", 0x0425: "x", 0x0406: "i", 0x0408: "j", 0x0405: "s",
-    # Greek lowercase
-    0x03b1: "a", 0x03b2: "b", 0x03b5: "e", 0x03b9: "i", 0x03ba: "k",
-    0x03bd: "v", 0x03bf: "o", 0x03c1: "p", 0x03c4: "t", 0x03c5: "u",
-    0x03c7: "x", 0x03c9: "w", 0x03b7: "n", 0x03b4: "d", 0x03b3: "y",
-    0x03c3: "s", 0x03c2: "s",
-    # Greek uppercase
-    0x0391: "a", 0x0392: "b", 0x0395: "e", 0x0397: "h", 0x0399: "i",
-    0x039a: "k", 0x039c: "m", 0x039d: "n", 0x039f: "o", 0x03a0: "p",
-    0x03a1: "p", 0x03a4: "t", 0x03a5: "y", 0x03a7: "x",
-    # Special Latin / IPA
-    0x0131: "i", 0x0142: "l", 0x00f8: "o", 0x00df: "ss",
+    0x0456: "i", 0x0457: "i", 0x0458: "j", 0x043a: "k", 0x043e: "o",
+    0x0440: "p", 0x0455: "s", 0x0445: "x", 0x0443: "y", 0x04bb: "h",
+    0x0501: "d", 0x051b: "q", 0x051d: "w",
+    # Greek lowercase true twins
+    0x03b1: "a", 0x03b5: "e", 0x03b9: "i", 0x03ba: "k", 0x03bf: "o",
+    0x03c1: "p", 0x03bd: "v", 0x03c5: "u", 0x03c7: "x", 0x03c9: "w",
+    # Dotless i
+    0x0131: "i",
 }
+# Fullwidth Latin
+for _c in range(0xff41, 0xff5b):
+    TRUE_LOOKALIKES[_c] = chr(_c - 0xff41 + ord("a"))
+for _c in range(0xff10, 0xff1a):
+    TRUE_LOOKALIKES[_c] = chr(_c - 0xff10 + ord("0"))
+
+
+def _label_skeleton(label):
+    if not label or (label.isascii() and not label.startswith("xn--")):
+        return label
+    u = label
+    if label.startswith("xn--"):
+        try:
+            if idna is not None:
+                u = idna.decode(label)
+            else:
+                u = label.encode("ascii").decode("idna")
+        except Exception:
+            return label
+    u = u.lower()
+    has_ascii = any(("a" <= c <= "z" or "0" <= c <= "9") for c in u)
+    chars = []
+    has_unmapped = False
+    for ch in u:
+        cp = ord(ch)
+        if ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == "-":
+            chars.append(ch)
+        elif cp in TRUE_LOOKALIKES:
+            chars.append(TRUE_LOOKALIKES[cp])
+        else:
+            chars.append(" ")
+            has_unmapped = True
+
+    # If completely foreign script without Latin letters and has unmapped letters, keep original
+    if not has_ascii and has_unmapped:
+        return label
+
+    s = "".join(chars)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def to_skeleton(host):
-    """Decode punycode (xn--) and normalize Unicode confusables/homoglyphs to ASCII Latin."""
+    """Decode punycode (xn--) and normalize mixed-script Unicode confusables to ASCII Latin."""
     if not host:
         return ""
     h = str(host).strip().lower()
-    if "xn--" in h:
-        labels = []
-        for p in h.split("."):
-            if p.startswith("xn--"):
-                try:
-                    if idna is not None:
-                        labels.append(idna.decode(p))
-                    else:
-                        labels.append(p.encode("ascii").decode("idna"))
-                except Exception:
-                    labels.append(p)
-            else:
-                labels.append(p)
-        h = ".".join(labels)
-    h = h.translate(CONFUSABLES_MAP)
-    h = unicodedata.normalize("NFKD", h).encode("ascii", "ignore").decode("ascii")
-    return h.lower()
+    # Fast path: pure ASCII with no punycode has no homoglyphs
+    if h.isascii() and "xn--" not in h:
+        return h
+    labels = [_label_skeleton(p) for p in h.split(".")]
+    return ".".join(labels)
 
 try:
     import tldextract

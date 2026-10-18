@@ -68,3 +68,31 @@ def test_name_features_punycode():
     assert feats["brand_any"] == 1
     assert feats["brand_toll"] == 1
     assert feats["official"] == 0
+
+
+def test_fully_cyrillic_names_do_not_pass_gate():
+    # Fully Cyrillic names with unmapped Cyrillic characters are legitimate local sites,
+    # NOT Latin brand spoofing attacks. Letters must NOT be deleted or glued together.
+    cases = [
+        "xn----8sbn1bccffpd4c.xn--p1ai",  # супер-почта.рф
+        "xn--80aswg.xn--p1ai",            # сайт.рф
+        "\u0441\u0443\u043f\u0435\u0440-\u043f\u043e\u0447\u0442\u0430.\u0440\u0444",
+        "\u0441\u0430\u0439\u0442.\u0440\u0444",
+    ]
+    for c in cases:
+        clean = F.clean_host(c)
+        if clean:
+            passed, brand, cat = F.brand_gate(clean)
+            assert passed is False, f"{c} (clean: {clean}) unexpectedly passed brand gate with brand={brand}"
+
+
+def test_mixed_script_passes_gate():
+    # Mixed-script: Latin text mixed with Cyrillic/Greek visual lookalikes
+    # Cyrillic 'e' in ezpass.com
+    passed, brand, cat = F.brand_gate("xn--zpass-ywe.com")
+    assert passed is True and brand == "ezpass"
+
+    # Cyrillic 'p' in usps.com
+    passed, brand, cat = F.brand_gate("xn--uss-1ed.com")
+    assert passed is True and brand == "usps"
+
