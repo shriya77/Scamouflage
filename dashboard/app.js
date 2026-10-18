@@ -178,14 +178,13 @@ function extractDomains(obj) {
   return pick(obj, 'recent_names', 'recent_domains', 'sample_domains', 'domains', 'recent', 'stream') ||
          (obj.domain && obj.type !== 'alert' ? [obj.domain] : null);
 }
-const clip = n => n.length > 38 ? n.slice(0, 37) + '…' : n;
 function rowParts(i) {
   const pool = stream.names, len = pool.length;
   if (!len) return null;
   const parts = [];
   for (let j = 0; j < ROW_NAMES; j++) {
     const k = len - 1 - (i * ROW_NAMES + j);
-    parts.push(el('span', null, clip(pool[((k % len) + len) % len])));
+    parts.push(el('span', null, pool[((k % len) + len) % len]));   // long names are cut by CSS; a copy gets the full name
     // every 5th name is a real catch, shown sharp in rust
     if (j % 5 === 3 && stream.hot.length) parts.push(el('span', 'hot', stream.hot[(i * 4 + (j >> 2)) % stream.hot.length]));
   }
@@ -210,7 +209,7 @@ if (reduce) setInterval(() => stream.built && rows.forEach(fillRow), 15000);
 // anything else. -1 = no domain, never shown.
 const heroRank = a => !String(a?.domain ?? '').trim() ? -1
   : SCAM_CATEGORIES.has(a.category) ? (isKnown(a) ? 2 : 3) : 1;
-const sign = { cycle: [], queue: [], i: 0, hideTimer: null };
+const sign = { cycle: [], queue: [], i: 0, hideTimer: null, held: false };
 
 function setCycle(list) {
   const ranked = list.filter(a => heroRank(a) >= 0)
@@ -241,9 +240,34 @@ function showSign(a) {
   const box = $('#catch');
   box.classList.add('show');
   clearTimeout(sign.hideTimer);
-  sign.hideTimer = setTimeout(() => box.classList.remove('show'), reduce ? 6000 : 3800);
+  sign.hideTimer = setTimeout(hideSign, reduce ? 6000 : 3800);
 }
+function hideSign() { if (!sign.held) $('#catch').classList.remove('show'); }
+function selectingInSign() {
+  const sel = getSelection();
+  return !!sel && !sel.isCollapsed && $('#catch').contains(sel.anchorNode);
+}
+// Hold the sign while the pointer is on it or its text is selected, so the domain can be copied
+$('#catch').addEventListener('pointerenter', () => { sign.held = true; });
+$('#catch').addEventListener('pointerleave', () => {
+  sign.held = selectingInSign();
+  clearTimeout(sign.hideTimer);
+  if (!sign.held) sign.hideTimer = setTimeout(hideSign, 1500);
+});
+document.addEventListener('selectionchange', () => {
+  if (sign.held && !selectingInSign() && !$('#catch').matches(':hover')) { sign.held = false; hideSign(); }
+});
+// One click selects a whole name (full text, even when CSS cuts it off), ready to copy
+$('.stream').addEventListener('click', e => {
+  const name = e.target.closest('.stream .row span, #catchDomain');
+  if (!name || !getSelection().isCollapsed) return;           // a drag already made its own selection
+  const range = document.createRange();
+  range.selectNodeContents(name);
+  getSelection().removeAllRanges();
+  getSelection().addRange(range);
+});
 function nextCatch() {
+  if (sign.held || $('.stream').matches(':hover')) return;   // no new sign while someone is selecting names
   const a = sign.queue.shift() || (sign.cycle.length ? sign.cycle[sign.i++ % sign.cycle.length] : null);
   if (a) showSign(a);
 }
@@ -592,6 +616,7 @@ async function loadCatches() {
   const btn = $('#refresh-btn');
   btn.disabled = true; btn.textContent = 'Checking…';
   const raw = await getJSON('catches');
+  if (location.hash.slice(1) === 'catches') setStatus(raw ? 'live' : 'offline', raw ? 'Live' : 'Offline');
   renderCatches(raw ? latestScams(raw) : [], !!raw);
   btn.disabled = false; btn.textContent = 'Check for new ones';
 }
@@ -614,8 +639,9 @@ function receiptRow(a, isFresh) {
   const open = a.id === roll.openId;
   const item = el('div', `item${open ? ' open' : ''}${isFresh ? ' fresh' : ''}`);
   item.dataset.id = a.id;
-  const b = el('button');
-  b.type = 'button';
+  const b = el('div', 'row-head');                           // not a <button>, so the domain can be selected
+  b.setAttribute('role', 'button');
+  b.tabIndex = 0;
   b.setAttribute('aria-expanded', String(open));
   const when = el('span', 'when', shortAgo(a.decided || a.time));
   if (a.decidedRaw) when.title = a.decidedRaw;
@@ -655,15 +681,24 @@ function knownRow(a) {
   row.append(el('span', null, shortAgo(a.decided || a.time)), d, el('span', null, (CAT[a.category] || CAT.other).label));
   return row;
 }
-$('#list').addEventListener('click', e => {
-  const item = e.target.closest('.item');
-  if (!item || e.target.closest('a')) return;
+function toggleRow(item) {
   roll.openId = roll.openId === item.dataset.id ? '' : item.dataset.id;
   $('#list').querySelectorAll('.item').forEach(it => {
     const on = it.dataset.id === roll.openId;
     it.classList.toggle('open', on);
-    it.querySelector('button').setAttribute('aria-expanded', String(on));
+    it.querySelector('.row-head').setAttribute('aria-expanded', String(on));
   });
+}
+$('#list').addEventListener('click', e => {
+  const head = e.target.closest('.row-head');
+  if (!head || !getSelection().isCollapsed) return;           // selecting a domain doesn't toggle the row
+  toggleRow(head.closest('.item'));
+});
+$('#list').addEventListener('keydown', e => {
+  const head = e.target.closest('.row-head');
+  if (!head || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  toggleRow(head.closest('.item'));
 });
 
 // =================================================================

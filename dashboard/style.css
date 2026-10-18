@@ -64,7 +64,7 @@ main section{padding-block:72px}
 .stream .r3{top:214px;animation:drift 48s linear infinite}
 @keyframes drift{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 .catch{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(.92);opacity:0;display:flex;align-items:stretch;gap:12px;transition:opacity .45s ease,transform .45s cubic-bezier(.2,.8,.2,1);pointer-events:none;max-width:calc(100% - 32px)}
-.catch.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.catch.show{opacity:1;transform:translate(-50%,-50%) scale(1);pointer-events:auto}
 .catch .sign{background:var(--green);color:#F6F4EE;border:3px solid #F6F4EE;outline:4px solid var(--green);border-radius:8px;padding:16px 16px 16px 26px;display:flex;align-items:center;gap:24px;min-width:0;box-shadow:0 22px 50px rgba(0,0,0,.5)}
 .catch .sign-text{display:flex;flex-direction:column;gap:4px;min-width:0}
 .catch .sign small{font-size:13px;color:#CFE0D4}
@@ -155,7 +155,7 @@ main section{padding-block:72px}
 .item{border-bottom:2px dashed var(--line)}
 .item.fresh{animation:fresh 3s ease-out}
 @keyframes fresh{from{background:var(--sand)}to{background:transparent}}
-.item > button{width:100%;min-height:62px;display:grid;grid-template-columns:70px minmax(0,1fr) auto 50px;gap:14px;align-items:center;padding:12px 0;border:0;background:transparent;text-align:left;cursor:pointer;color:var(--ink);font:inherit}
+.item > .row-head{width:100%;min-height:62px;display:grid;grid-template-columns:70px minmax(0,1fr) auto 50px;gap:14px;align-items:center;padding:12px 0;border:0;background:transparent;text-align:left;cursor:pointer;color:var(--ink);font:inherit}
 .item .when{font-size:14px;color:var(--ink-2)}
 .item .domain{font-size:17px}
 .stamp{font-family:var(--font-display);font-weight:800;font-size:12px;letter-spacing:.08em;border:2px solid currentColor;border-radius:3px;padding:3px 7px;transform:rotate(-4deg);white-space:nowrap}
@@ -193,7 +193,7 @@ footer{border-top:1px solid var(--line);padding-block:26px;font-size:14px;color:
 
 @media (max-width:640px){
   .stream{height:260px}
-  .item > button{grid-template-columns:54px minmax(0,1fr) 40px}
+  .item > .row-head{grid-template-columns:54px minmax(0,1fr) 40px}
   .item .stamp{display:none}
   .why ul{padding-left:0}
   .speedups{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -205,6 +205,12 @@ footer{border-top:1px solid var(--line);padding-block:26px;font-size:14px;color:
 }
 
 /* ---- additions for live data (not in the design file) ---- */
+.stream:hover .row{animation-play-state:paused}               /* hold still so names can be selected */
+.stream .row span{display:inline-block;max-width:24em;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;user-select:text;-webkit-user-select:text}
+.stream .row span:not(.hot):hover{filter:none;color:#C9D3CC}
+.item > .row-head{user-select:text;-webkit-user-select:text}
+.catch .sign{user-select:text;-webkit-user-select:text;cursor:text}
+.brand-logo{display:block;height:46px;width:auto}
 [hidden]{display:none!important}
 body{margin:0}
 .live.offline i{background:#B8B2A6;animation:none}
