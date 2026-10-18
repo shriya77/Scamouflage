@@ -201,7 +201,8 @@ function buildRows() {
   $('#stream-wait').hidden = true;
 }
 // New names swap in at the end of each loop, so the drift never jumps
-rows.forEach((r, i) => r.addEventListener('animationiteration', () => fillRow(r, i)));
+// (only the row's own drift: the rust names' glow pulse also fires animationiteration and bubbles up)
+rows.forEach((r, i) => r.addEventListener('animationiteration', e => { if (e.target === r) fillRow(r, i); }));
 if (reduce) setInterval(() => stream.built && rows.forEach(fillRow), 15000);
 
 // ---------- Catch sign ----------
