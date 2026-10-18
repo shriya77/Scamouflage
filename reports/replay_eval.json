@@ -1,0 +1,267 @@
+{
+  "recording": "ct-20261017-153717.jsonl.gz",
+  "unique_names": 1359910,
+  "minutes": 26.181883331139883,
+  "gated": 503,
+  "model_version": "stage1-20261018T0011",
+  "lines": [
+    {
+      "t": 0.3,
+      "flagged": 424,
+      "known_scams": 0,
+      "flagged_per_day": 23320,
+      "unknown_per_day": 23320
+    },
+    {
+      "t": 0.5,
+      "flagged": 319,
+      "known_scams": 0,
+      "flagged_per_day": 17545,
+      "unknown_per_day": 17545
+    },
+    {
+      "t": 0.7,
+      "flagged": 186,
+      "known_scams": 0,
+      "flagged_per_day": 10230,
+      "unknown_per_day": 10230
+    },
+    {
+      "t": 0.8,
+      "flagged": 140,
+      "known_scams": 0,
+      "flagged_per_day": 7700,
+      "unknown_per_day": 7700
+    },
+    {
+      "t": 0.85,
+      "flagged": 116,
+      "known_scams": 0,
+      "flagged_per_day": 6380,
+      "unknown_per_day": 6380
+    },
+    {
+      "t": 0.9,
+      "flagged": 87,
+      "known_scams": 0,
+      "flagged_per_day": 4785,
+      "unknown_per_day": 4785
+    },
+    {
+      "t": 0.95,
+      "flagged": 46,
+      "known_scams": 0,
+      "flagged_per_day": 2530,
+      "unknown_per_day": 2530
+    },
+    {
+      "t": 0.98,
+      "flagged": 18,
+      "known_scams": 0,
+      "flagged_per_day": 990,
+      "unknown_per_day": 990
+    }
+  ],
+  "top_flagged": [
+    {
+      "host": "usps-parcel-tracking-support.com",
+      "s1": 1.0,
+      "known_scam": false
+    },
+    {
+      "host": "dhlee53.chatgpt.site",
+      "s1": 1.0,
+      "known_scam": false
+    },
+    {
+      "host": "com-bridgeviawallet.sbs",
+      "s1": 1.0,
+      "known_scam": false
+    },
+    {
+      "host": "advertisers-client-support-violation-enforcement.pages.dev",
+      "s1": 1.0,
+      "known_scam": false
+    },
+    {
+      "host": "pay-dhl.icu",
+      "s1": 0.997,
+      "known_scam": false
+    },
+    {
+      "host": "fedex.bdjwpw.shop",
+      "s1": 0.997,
+      "known_scam": false
+    },
+    {
+      "host": "com-helpleger-start.pages.dev",
+      "s1": 0.997,
+      "known_scam": false
+    },
+    {
+      "host": "r6sbal001hrc.track-dhlparcel.com",
+      "s1": 0.99,
+      "known_scam": false
+    },
+    {
+      "host": "indianbotsoc-go-id-parcell-webb-app.pages.dev",
+      "s1": 0.99,
+      "known_scam": false
+    },
+    {
+      "host": "fedex.bdjwpc.shop",
+      "s1": 0.99,
+      "known_scam": false
+    },
+    {
+      "host": "dhlwvj.info",
+      "s1": 0.99,
+      "known_scam": false
+    },
+    {
+      "host": "com-0084211278-rooms.homes",
+      "s1": 0.989,
+      "known_scam": false
+    },
+    {
+      "host": "fedexvjsozl.shop",
+      "s1": 0.986,
+      "known_scam": false
+    },
+    {
+      "host": "onlinestore-privacy-violation.com",
+      "s1": 0.985,
+      "known_scam": false
+    },
+    {
+      "host": "admin.clearance-parcelcustoms.com",
+      "s1": 0.985,
+      "known_scam": false
+    },
+    {
+      "host": "58.com-4.20dbabwuifyta3525.658591.com",
+      "s1": 0.984,
+      "known_scam": false
+    },
+    {
+      "host": "fedexvjsozk.shop",
+      "s1": 0.982,
+      "known_scam": false
+    },
+    {
+      "host": "com-faksdoi.vip",
+      "s1": 0.98,
+      "known_scam": false
+    },
+    {
+      "host": "uspsell.shop",
+      "s1": 0.974,
+      "known_scam": false
+    },
+    {
+      "host": "usps.netflx-authns.workers.dev",
+      "s1": 0.971,
+      "known_scam": false
+    },
+    {
+      "host": "nobleparcel.site",
+      "s1": 0.969,
+      "known_scam": false
+    },
+    {
+      "host": "keepass-customer-support-number.pages.dev",
+      "s1": 0.969,
+      "known_scam": false
+    },
+    {
+      "host": "dmvwebflow.pages.dev",
+      "s1": 0.966,
+      "known_scam": false
+    },
+    {
+      "host": "ernandezdriver50.chatgpt.site",
+      "s1": 0.964,
+      "known_scam": false
+    },
+    {
+      "host": "epayments-dhl.com",
+      "s1": 0.964,
+      "known_scam": false
+    },
+    {
+      "host": "com-access.info",
+      "s1": 0.964,
+      "known_scam": false
+    },
+    {
+      "host": "tollfree-customer-helpdesk.pages.dev",
+      "s1": 0.962,
+      "known_scam": false
+    },
+    {
+      "host": "dmv-inquiry-ui.claims.ic1.statefarm",
+      "s1": 0.961,
+      "known_scam": false
+    },
+    {
+      "host": "ar.les-citations-de-taha-hassine-ferhat.com",
+      "s1": 0.96,
+      "known_scam": false
+    },
+    {
+      "host": "noemie-vezerepassion.chatgpt.site",
+      "s1": 0.959,
+      "known_scam": false
+    },
+    {
+      "host": "local-usps-notification.com",
+      "s1": 0.959,
+      "known_scam": false
+    },
+    {
+      "host": "dmv-aasf.bond",
+      "s1": 0.959,
+      "known_scam": false
+    },
+    {
+      "host": "dhlskincentre.com",
+      "s1": 0.959,
+      "known_scam": false
+    },
+    {
+      "host": "denvercuredelivery.com",
+      "s1": 0.959,
+      "known_scam": false
+    },
+    {
+      "host": "com-property-room9780162-longtherm.homes",
+      "s1": 0.959,
+      "known_scam": false
+    },
+    {
+      "host": "com-ladgrstrt.pages.dev",
+      "s1": 0.958,
+      "known_scam": false
+    },
+    {
+      "host": "parking-violation-app.pages.dev",
+      "s1": 0.957,
+      "known_scam": false
+    },
+    {
+      "host": "com-mentoriadigit.pages.dev",
+      "s1": 0.957,
+      "known_scam": false
+    },
+    {
+      "host": "potato-parcel-shark-tank-net-worth.pages.dev",
+      "s1": 0.952,
+      "known_scam": false
+    },
+    {
+      "host": "orman.com-x.tr",
+      "s1": 0.952,
+      "known_scam": false
+    }
+  ]
+}

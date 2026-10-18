@@ -1,0 +1,107 @@
+{
+  "t_high": 0.9,
+  "t_low": 0.3,
+  "est_false_alarms_per_day_at_t_high": 0.0,
+  "est_maybe_per_hour": 650.0,
+  "n_val_gated_normals": 22,
+  "false_alarms_per_day_per_val_mistake": 1040.0,
+  "target_false_alarms_per_day": 300,
+  "tradeoff_curve": [
+    {
+      "t": 0.3,
+      "recall_gated": 1.0,
+      "recall_toll": 1.0,
+      "normals_over": 15,
+      "fa_day": 15916.6
+    },
+    {
+      "t": 0.4,
+      "recall_gated": 1.0,
+      "recall_toll": 1.0,
+      "normals_over": 12,
+      "fa_day": 12932.2
+    },
+    {
+      "t": 0.5,
+      "recall_gated": 0.998019801980198,
+      "recall_toll": 0.9975728155339806,
+      "normals_over": 9,
+      "fa_day": 9947.9
+    },
+    {
+      "t": 0.6,
+      "recall_gated": 0.9900990099009901,
+      "recall_toll": 0.9902912621359223,
+      "normals_over": 7,
+      "fa_day": 7958.3
+    },
+    {
+      "t": 0.7,
+      "recall_gated": 0.9841584158415841,
+      "recall_toll": 0.9830097087378641,
+      "normals_over": 4,
+      "fa_day": 4973.9
+    },
+    {
+      "t": 0.8,
+      "recall_gated": 0.9782178217821782,
+      "recall_toll": 0.9757281553398058,
+      "normals_over": 4,
+      "fa_day": 4973.9
+    },
+    {
+      "t": 0.85,
+      "recall_gated": 0.9683168316831683,
+      "recall_toll": 0.9635922330097088,
+      "normals_over": 4,
+      "fa_day": 4973.9
+    },
+    {
+      "t": 0.9,
+      "recall_gated": 0.9544554455445544,
+      "recall_toll": 0.9490291262135923,
+      "normals_over": 4,
+      "fa_day": 4973.9
+    },
+    {
+      "t": 0.95,
+      "recall_gated": 0.8950495049504951,
+      "recall_toll": 0.8980582524271845,
+      "normals_over": 2,
+      "fa_day": 2984.4
+    },
+    {
+      "t": 0.98,
+      "recall_gated": 0.6138613861386139,
+      "recall_toll": 0.5946601941747572,
+      "normals_over": 1,
+      "fa_day": 1989.6
+    },
+    {
+      "t": 0.985,
+      "recall_gated": 0.592079207920792,
+      "recall_toll": 0.5728155339805825,
+      "normals_over": 0,
+      "fa_day": 994.8
+    }
+  ],
+  "model_version": "stage1-20261018T0011",
+  "gate_rate": 0.00041600221867849963,
+  "gate_rate_source": "measured on 86,538 live names (ct_sample.txt)",
+  "unique_names_per_day": 55000000.0,
+  "names_per_day_source": "argument",
+  "val_recall_gated_at_t_high": 0.5921,
+  "val_recall_toll_at_t_high": 0.5728,
+  "n_train": 370866,
+  "n_val": 61723,
+  "snapml": {
+    "train_sec": 27.87,
+    "sklearn_train_sec": 24.56,
+    "val_pr_auc": 0.7897,
+    "note": "IBM Snap ML BoostingMachine on LinuxONE (CPU mode); reported only, not deployed"
+  },
+  "trained_at": "2026-10-18T00:11:13+00:00",
+  "train_minutes": 1.7,
+  "arch": "s390x",
+  "t_high_source": "set from replay_eval on ct-20261017-153717.jsonl.gz"
+}

@@ -1,0 +1,435 @@
+{
+  "model_version": "stage1-20261018T0011",
+  "thresholds": {
+    "t_high": 0.9,
+    "t_low": 0.3
+  },
+  "gate_rate": 0.00041600221867849963,
+  "unique_names_per_day": 55000000.0,
+  "arch": "s390x",
+  "test": {
+    "rows": 107574,
+    "scam": 28410,
+    "normal": 79164,
+    "pr_auc": 0.8077,
+    "roc_auc": 0.9066,
+    "system_at_t_high": {
+      "tp": 596,
+      "fp": 4,
+      "fn": 27814,
+      "precision": 0.9933333333333333,
+      "recall": 0.020978528687082013
+    },
+    "system_at_t_low": {
+      "tp": 652,
+      "fp": 25,
+      "fn": 27758,
+      "precision": 0.9630723781388478,
+      "recall": 0.022949665610700457
+    },
+    "baseline_brand_word_rule": {
+      "tp": 654,
+      "fp": 37,
+      "fn": 27756,
+      "precision": 0.9464544138929089,
+      "recall": 0.023020063357972544
+    },
+    "by_category_recall_at_t_high": {
+      "delivery": {
+        "n": 237,
+        "recall": 0.9072,
+        "recall_incl_maybe": 1.0
+      },
+      "gov": {
+        "n": 119,
+        "recall": 0.9076,
+        "recall_incl_maybe": 1.0
+      },
+      "other": {
+        "n": 27996,
+        "recall": 0.0081,
+        "recall_incl_maybe": 0.0085
+      },
+      "toll": {
+        "n": 58,
+        "recall": 0.7759,
+        "recall_incl_maybe": 0.9828
+      }
+    },
+    "toll_delivery_gov": {
+      "n": 414,
+      "recall_at_t_high": 0.8889,
+      "recall_incl_maybe": 0.9976
+    },
+    "normals": {
+      "n": 79164,
+      "n_gated": 37,
+      "fpr_all": 5.052801778586226e-05,
+      "fpr_gated": 0.10810810810810811,
+      "est_false_alarms_per_day": 2473.5
+    },
+    "examples": {
+      "caught": [
+        {
+          "host": "com-parceltrack.top",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "com-tracking-helpcc.cc",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "com-tracking-helpsaz.cc",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps.paymhbl.vip",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps.paymhbk.vip",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps.paymhbd.vip",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "cox.com-6159368de39251d7a-login.id-107sbtd9cbhsbtd5d80a13c0db1f546757jnq9j5754675720349293.kylelierman.com",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps-esf.shop",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "confirm-package-redelivery-dhll.vercel.app",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps.paymhbc.vip",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps.paymhbb.vip",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "com-trackkstk.top",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "com-trackkxw.top",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "com-trackkzw.top",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "com-trackvvk.top",
+          "category": "other",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps-yju.shop",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps-xlx.shop",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps-qyu.shop",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps-pzn.shop",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        },
+        {
+          "host": "usps-pbo.shop",
+          "category": "delivery",
+          "s1": 1.0,
+          "gate": true
+        }
+      ],
+      "false_alarm": [
+        {
+          "host": "fedex.bdjwpp.shop",
+          "category": "legit",
+          "s1": 0.996,
+          "gate": true
+        },
+        {
+          "host": "outlook.com-9.kl.com.ua",
+          "category": "legit",
+          "s1": 0.979,
+          "gate": true
+        },
+        {
+          "host": "i-securedeliver.jp",
+          "category": "legit",
+          "s1": 0.963,
+          "gate": true
+        },
+        {
+          "host": "com-x.life",
+          "category": "legit",
+          "s1": 0.95,
+          "gate": true
+        }
+      ],
+      "missed_toll_delivery_gov": [
+        {
+          "host": "savepassword.ourhobby.com",
+          "category": "toll",
+          "s1": 0.897,
+          "gate": true
+        },
+        {
+          "host": "news.tollsol.info",
+          "category": "toll",
+          "s1": 0.894,
+          "gate": true
+        },
+        {
+          "host": "irs-myprofile.com",
+          "category": "gov",
+          "s1": 0.885,
+          "gate": true
+        },
+        {
+          "host": "irs-confirm.net",
+          "category": "gov",
+          "s1": 0.884,
+          "gate": true
+        },
+        {
+          "host": "ezpass.paysnst.vip",
+          "category": "toll",
+          "s1": 0.881,
+          "gate": true
+        },
+        {
+          "host": "parcel-update.co.uk",
+          "category": "delivery",
+          "s1": 0.88,
+          "gate": true
+        },
+        {
+          "host": "irsaltdprojecthub.egregiousolv.com",
+          "category": "gov",
+          "s1": 0.88,
+          "gate": true
+        },
+        {
+          "host": "irsusa-government.com",
+          "category": "gov",
+          "s1": 0.88,
+          "gate": true
+        },
+        {
+          "host": "irscenter-data.com",
+          "category": "gov",
+          "s1": 0.874,
+          "gate": true
+        },
+        {
+          "host": "myauparcel-scheduling.com",
+          "category": "delivery",
+          "s1": 0.865,
+          "gate": true
+        },
+        {
+          "host": "usps.avaturefed.net",
+          "category": "delivery",
+          "s1": 0.865,
+          "gate": true
+        },
+        {
+          "host": "dhl-suisse.gotdns.ch",
+          "category": "delivery",
+          "s1": 0.865,
+          "gate": true
+        },
+        {
+          "host": "dhl-suisse2.gotdns.ch",
+          "category": "delivery",
+          "s1": 0.865,
+          "gate": true
+        },
+        {
+          "host": "app.dhl.international.express.au.gorengo.com",
+          "category": "delivery",
+          "s1": 0.842,
+          "gate": true
+        },
+        {
+          "host": "e-dhl-iexpress.net",
+          "category": "delivery",
+          "s1": 0.839,
+          "gate": true
+        },
+        {
+          "host": "irs.gov.filing.brewcoffeecompanypty.com",
+          "category": "gov",
+          "s1": 0.836,
+          "gate": true
+        },
+        {
+          "host": "secure.dhlguestmanagement.com",
+          "category": "delivery",
+          "s1": 0.836,
+          "gate": true
+        },
+        {
+          "host": "demo.dmv-driversed.com",
+          "category": "gov",
+          "s1": 0.836,
+          "gate": true
+        },
+        {
+          "host": "agricolepass.calamitata.com",
+          "category": "toll",
+          "s1": 0.81,
+          "gate": true
+        },
+        {
+          "host": "hermes.trackparcels-uk.com",
+          "category": "delivery",
+          "s1": 0.806,
+          "gate": true
+        }
+      ]
+    },
+    "names_per_sec": 11485.0
+  },
+  "official_sites": [
+    {
+      "host": "bayareafastrak.org",
+      "s1": 0.245
+    },
+    {
+      "host": "dhl.com",
+      "s1": 0.53
+    },
+    {
+      "host": "dmv.ca.gov",
+      "s1": 0.371
+    },
+    {
+      "host": "e-zpassny.com",
+      "s1": 0.765
+    },
+    {
+      "host": "ezdrivema.com",
+      "s1": 0.672
+    },
+    {
+      "host": "ezpassnj.com",
+      "s1": 0.46
+    },
+    {
+      "host": "fedex.com",
+      "s1": 0.516
+    },
+    {
+      "host": "hctra.org",
+      "s1": 0.066
+    },
+    {
+      "host": "illinoistollway.com",
+      "s1": 0.28
+    },
+    {
+      "host": "irs.gov",
+      "s1": 0.081
+    },
+    {
+      "host": "linkedin.com",
+      "s1": 0.283
+    },
+    {
+      "host": "nflxvideo.net",
+      "s1": 0.103
+    },
+    {
+      "host": "ntta.org",
+      "s1": 0.041
+    },
+    {
+      "host": "outlook.com",
+      "s1": 0.424
+    },
+    {
+      "host": "peachpass.com",
+      "s1": 0.223
+    },
+    {
+      "host": "sunpass.com",
+      "s1": 0.17
+    },
+    {
+      "host": "thetollroads.com",
+      "s1": 0.168
+    },
+    {
+      "host": "txdmv.gov",
+      "s1": 0.585
+    },
+    {
+      "host": "txtag.org",
+      "s1": 0.08
+    },
+    {
+      "host": "usps.com",
+      "s1": 0.535
+    },
+    {
+      "host": "windows-ppe.net",
+      "s1": 0.132
+    },
+    {
+      "host": "x.com",
+      "s1": 0.046
+    }
+  ]
+}
