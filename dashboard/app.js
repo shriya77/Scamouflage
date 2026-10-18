@@ -24,7 +24,9 @@ const CONFIG = {
   },
   WS_PATH: '/ws/live',           // live stream (domain names + alerts), optional
 
-  EXTENSION_URL: '#',            // optional: a download link for the extension folder (shows a Download button)
+  // Download button on "Get the extension": the latest main branch as a zip from our public GitHub repo
+  // (GitHub can't zip one folder; the extension is the extension/ folder inside). '#' hides the button.
+  EXTENSION_URL: 'https://github.com/shriya77/Scamouflage/archive/refs/heads/main.zip',
   POLL_MS: 2000,
   CATCHES_LIMIT: 15,
   CATCHES_POLL_MS: 5000,         // "Latest catches" refreshes itself while that tab is open
