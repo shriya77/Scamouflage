@@ -154,43 +154,102 @@ button.outline:hover { background: rgba(255, 255, 255, 0.12); border-color: #fff
 button.outline:focus-visible { outline: 3px solid #ffeb3b; outline-offset: 3px; }
 button.outline:disabled { opacity: 0.6; cursor: default; }
 
-/* Report panel */
-.report {
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 14px;
-  padding: 20px 24px;
-  margin: 0 0 24px;
+/* Report dialog: a white card over the dimmed red page */
+body.dialog-open { overflow: hidden; }
+.report-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(60, 8, 5, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
 }
-.report-status { font-size: 16px; line-height: 1.5; margin: 0 0 12px; }
-.report-status.err { font-weight: 600; }
+.report {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  background: #ffffff;
+  color: #1b1b1b;
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  animation: report-in 0.18s ease-out;
+}
+@keyframes report-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .report { animation: none; } }
+
+.report-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid #ece6e4;
+}
+.report-title { font-size: 20px; font-weight: 700; margin: 0; color: #1b1b1b; letter-spacing: -0.2px; }
+.report-site { margin: 4px 0 0; font-size: 14px; color: #6a5f5d; word-break: break-all; }
+.report-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #6a5f5d;
+  font-size: 28px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.report-close:hover { color: #1b1b1b; }
+.report-close:focus-visible { outline: 3px solid #b3261e; outline-offset: 2px; border-radius: 6px; }
+
+.report-scroll { padding: 16px 22px; overflow: auto; }
+.report-status { font-size: 15.5px; line-height: 1.5; margin: 0 0 14px; color: #1b1b1b; }
+.report-status.err {
+  font-weight: 500;
+  background: #fdf1ef;
+  color: #7a1b14;
+  border: 1px solid #f3cfca;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
 .report-meta {
   display: grid;
   grid-template-columns: 90px 1fr;
   row-gap: 6px;
   column-gap: 12px;
   margin: 0 0 12px;
-  font-size: 15px;
+  font-size: 14.5px;
 }
-.report-meta dt { opacity: 0.8; }
+.report-meta dt { color: #6a5f5d; }
 .report-meta dd { margin: 0; word-break: break-word; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .report-body {
   width: 100%;
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #1b1b1b;
-  background: #fff8f7;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #faf7f5;
+  border: 1px solid #e4dcd9;
   border-radius: 10px;
   padding: 12px 14px;
   resize: vertical;
 }
-.report-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0 10px; }
+.report-fine { font-size: 13px; color: #6a5f5d; line-height: 1.5; margin: 10px 0 0; }
+
+.report-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid #ece6e4;
+}
+.report-note { font-size: 14px; color: #2f7a4a; flex: 1 1 160px; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
 .report-btn {
   display: inline-block;
-  background: #ffffff;
-  color: #b3261e;
-  border: none;
+  background: #b3261e;
+  color: #ffffff;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 10px 18px;
   font: inherit;
@@ -199,9 +258,14 @@ button.outline:disabled { opacity: 0.6; cursor: default; }
   text-decoration: none;
   cursor: pointer;
 }
-.report-btn:hover { background: #fce8e6; }
-.report-btn:focus-visible { outline: 3px solid #ffeb3b; outline-offset: 3px; }
-.report-note { font-size: 14px; opacity: 0.9; }
-.report-fine { font-size: 13px; opacity: 0.8; line-height: 1.5; margin: 8px 0 0; }
+.report-btn:hover { background: #981f18; }
+.report-btn.ghost { background: #ffffff; color: #b3261e; border-color: #e4b9b5; }
+.report-btn.ghost:hover { background: #fdf1ef; }
+.report-btn:focus-visible { outline: 3px solid #b3261e; outline-offset: 3px; }
+
+@media (max-width: 560px) {
+  .report-backdrop { padding: 0; align-items: stretch; }
+  .report { max-height: 100vh; border-radius: 0; }
+}
 
 .fineprint { font-size: 13px; opacity: 0.8; line-height: 1.5; margin: 0; }

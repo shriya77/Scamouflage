@@ -113,9 +113,43 @@
   // This is the only action that tells the server which site the user was on,
   // and the panel says so. The user sends the mail from their own mail app.
   const reportBtn = document.getElementById('report');
+  const backdrop = document.getElementById('report-backdrop');
   const panel = document.getElementById('report-panel');
   const statusEl = document.getElementById('report-status');
   const ready = document.getElementById('report-ready');
+  const copyBtn = document.getElementById('report-copy');
+  const mailto = document.getElementById('report-mailto');
+  const note = document.getElementById('report-note');
+  document.getElementById('report-site').textContent = host || matched || '';
+
+  // The dialog sits on top of the page. While it is open, Tab stays inside it
+  // and Escape, the × button, "Close" or a click on the dimmed page close it.
+  let lastFocus = null;
+  function openDialog() {
+    lastFocus = document.activeElement;
+    backdrop.hidden = false;
+    document.body.classList.add('dialog-open');
+    document.getElementById('report-close').focus();
+  }
+  function closeDialog() {
+    backdrop.hidden = true;
+    document.body.classList.remove('dialog-open');
+    if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+  }
+  document.getElementById('report-close').addEventListener('click', closeDialog);
+  document.getElementById('report-done').addEventListener('click', closeDialog);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeDialog(); });
+  document.addEventListener('keydown', (e) => {
+    if (backdrop.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeDialog(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = Array.from(panel.querySelectorAll('button, a[href], textarea'))
+      .filter((n) => !n.hidden && n.offsetParent !== null);
+    if (focusable.length === 0) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   const ERRORS = {
     demo: null, // server text is used
     offline: 'Could not reach the Scamouflage server. Check your connection and try again.',
@@ -139,12 +173,14 @@
   }
 
   reportBtn.addEventListener('click', async () => {
-    if (draft) { panel.hidden = false; panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    openDialog();
+    if (draft) return; // already drafted: just show it again
     reportBtn.disabled = true;
-    panel.hidden = false;
     ready.hidden = true;
+    copyBtn.hidden = true;
+    mailto.hidden = true;
+    note.textContent = '';
     setStatus('Looking up who registered this site…', false);
-    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     let res;
     try {
       res = await chrome.runtime.sendMessage({ type: 'draftReport', hostname: host || matched });
@@ -162,8 +198,7 @@
       res.registrar || 'unknown (no registrar name in the public record)';
     document.getElementById('report-subject').textContent = res.subject;
     document.getElementById('report-body').value = res.body;
-    const mailto = document.getElementById('report-mailto');
-    const note = document.getElementById('report-note');
+    copyBtn.hidden = false;
     if (res.to.length && res.mailto) {
       document.getElementById('report-to').textContent = res.to.join(', ') + (res.phone ? ' · ' + res.phone : '');
       mailto.href = res.mailto;
@@ -185,12 +220,12 @@
       setStatus(why, true);
     }
     ready.hidden = false;
+    if (!backdrop.hidden) (mailto.hidden ? copyBtn : mailto).focus();
   });
 
-  document.getElementById('report-copy').addEventListener('click', async () => {
+  copyBtn.addEventListener('click', async () => {
     if (!draft) return;
     const text = 'To: ' + draft.to.join(', ') + '\nSubject: ' + draft.subject + '\n\n' + draft.body;
-    const note = document.getElementById('report-note');
     try {
       await navigator.clipboard.writeText(text);
       note.textContent = 'Copied.';

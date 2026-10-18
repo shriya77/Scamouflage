@@ -49,41 +49,55 @@
       <button id="continue" class="secondary" type="button">Continue anyway</button>
     </div>
 
-    <!-- "Report this site": a drafted abuse e-mail to the site's registrar,
-         sent by the user from their own mail program. -->
-    <section id="report-panel" class="report" hidden aria-live="polite">
-      <h2 class="panel-label">Report to the registrar</h2>
-      <p id="report-status" class="report-status">Looking up who registered this site…</p>
-      <div id="report-ready" hidden>
-        <dl class="report-meta">
-          <dt>To</dt><dd id="report-to" class="mono"></dd>
-          <dt>Registrar</dt><dd id="report-registrar"></dd>
-          <dt>Subject</dt><dd id="report-subject"></dd>
-        </dl>
-        <textarea id="report-body" class="report-body" readonly rows="12" aria-label="Report text"></textarea>
-        <div class="report-actions">
-          <a id="report-mailto" class="report-btn" href="#">Open in my mail app</a>
-          <button id="report-copy" class="report-btn" type="button">Copy text</button>
-          <span id="report-note" class="report-note"></span>
-        </div>
-        <p class="report-fine">
-          The e-mail goes from your own address, so the registrar can reply to you.
-          Scamouflage does not send anything itself and keeps no record of who reported what.
-        </p>
-      </div>
-      <p class="report-fine">
-        Pressing the button sent this site's address to the Scamouflage server once,
-        to find the registrar's abuse contact. That is the only time the extension
-        tells the server which site you were on.
-      </p>
-    </section>
-
     <p class="fineprint">
       This list is generated automatically from new HTTPS certificates. A
       flagged site is a likely scam, not a confirmed one.
       <span id="source"></span>
     </p>
   </main>
+
+  <!-- "Report this site": a dialog over the page with a drafted abuse e-mail
+       to the site's registrar, sent by the user from their own mail program. -->
+  <div id="report-backdrop" class="report-backdrop" hidden>
+    <section id="report-panel" class="report" role="dialog" aria-modal="true"
+             aria-labelledby="report-title" aria-describedby="report-status">
+      <div class="report-head">
+        <div>
+          <h2 id="report-title" class="report-title">Report to the registrar</h2>
+          <p id="report-site" class="report-site mono"></p>
+        </div>
+        <button id="report-close" class="report-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="report-scroll">
+        <p id="report-status" class="report-status" aria-live="polite">Looking up who registered this site…</p>
+        <div id="report-ready" hidden>
+          <dl class="report-meta">
+            <dt>To</dt><dd id="report-to" class="mono"></dd>
+            <dt>Registrar</dt><dd id="report-registrar"></dd>
+            <dt>Subject</dt><dd id="report-subject"></dd>
+          </dl>
+          <textarea id="report-body" class="report-body" readonly rows="12" aria-label="Report text"></textarea>
+          <p class="report-fine">
+            The e-mail goes from your own address, so the registrar can reply to you.
+            Scamouflage does not send anything itself and keeps no record of who reported what.
+          </p>
+        </div>
+        <p class="report-fine">
+          Pressing the button sent this site's address to the Scamouflage server once,
+          to find the registrar's abuse contact. That is the only time the extension
+          tells the server which site you were on.
+        </p>
+      </div>
+      <div class="report-foot">
+        <span id="report-note" class="report-note"></span>
+        <div class="report-actions">
+          <button id="report-copy" class="report-btn ghost" type="button" hidden>Copy text</button>
+          <a id="report-mailto" class="report-btn" href="#" hidden>Open in my mail app</a>
+          <button id="report-done" class="report-btn ghost" type="button">Close</button>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <script src="matcher.js"></script>
   <script src="warning.js"></script>
