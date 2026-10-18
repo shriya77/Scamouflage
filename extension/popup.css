@@ -97,6 +97,7 @@ main { padding: 14px 16px 4px; }
 .status-detail:empty { display: none; }
 .status-reasons { margin: 8px 0 0; padding-left: 18px; }
 .status-reasons li { margin: 2px 0; }
+.status-go-back { display: flex; width: 100%; margin-top: 12px; }
 
 .status-loading .status-icon::after { content: "…"; }
 
