@@ -609,9 +609,14 @@ async function draftReport(rawHost) {
     data = null;
   }
   if (!res.ok || !data || typeof data !== 'object') {
+    let code = (data && typeof data.code === 'string') ? data.code : ('http_' + res.status);
+    // A 404 *without* our JSON error means the route itself is missing: the
+    // server is running an older version that has no reporting yet.
+    if (res.status === 404 && !(data && typeof data.code === 'string')) code = 'no_route';
+    else if (res.status >= 500) code = 'server_error';
     return {
       error: (data && typeof data.error === 'string') ? data.error : ('Server answered ' + res.status + '.'),
-      code: (data && typeof data.code === 'string') ? data.code : ('http_' + res.status),
+      code,
       status: res.status,
     };
   }

@@ -126,6 +126,9 @@
       'text message to your carrier (forward it to 7726).',
     rate_limited: 'Too many reports from this connection in a short time. Please try again in a minute.',
     off: 'Reporting is switched off on the Scamouflage server right now.',
+    no_route: 'The Scamouflage server you are connected to is running an older version without reporting. ' +
+      'It needs to be updated (the API must include backend/abuse_report.py) and restarted.',
+    server_error: 'The Scamouflage server hit an error while drafting the report. Please try again in a minute.',
   };
   let draft = null;
 
