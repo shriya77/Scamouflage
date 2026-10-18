@@ -35,7 +35,8 @@ else:
     DB_PATH = DATA_DIR / "scamouflage.db"
 sys.path.insert(0, str(ROOT))  # backend/ and alerts/ live next to api/
 DASHBOARD_DIR = ROOT / "dashboard"
-DASHBOARD_FILES = ("index.html", "app.js", "style.css", "logo.png")
+DASHBOARD_FILES = ("index.html", "app.js", "style.css", "wallpaper.js", "logo.png",
+                   "extension-screenshot.png")
 HOST = os.environ.get("API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("API_PORT", 8000))
 WS_POLL_SECONDS = 1.0
