@@ -224,8 +224,8 @@ body{margin:0}
 .ext code{font-family:var(--font-domain);font-size:.9em;background:var(--sand);border-radius:3px;padding:1px 5px}
 @media (max-width:640px){ .why-facts{padding-left:0} }
 /* bigger live stat line under the stream */
-.stream-caption{gap:10px 40px;padding-block:22px;font-size:18px;align-items:baseline}
-.stream-caption b{font-family:var(--font-display);font-weight:800;font-size:30px;letter-spacing:-.02em;color:var(--ink)}
+.stream-caption{gap:10px 28px;padding-block:22px;font-size:17px;align-items:baseline}
+.stream-caption b{font-family:var(--font-display);font-weight:800;font-size:27px;letter-spacing:-.02em;color:var(--ink)}
 @media (max-width:640px){ .stream-caption{gap:8px 24px;font-size:16px} .stream-caption b{font-size:24px} }
 .tile-n small.tile-pre{margin:0 .25em 0 0}
 /* Narrow screens only: the sign is centred with left:50%, which caps an auto width at half the band,
