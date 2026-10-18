@@ -6,6 +6,17 @@ Scamouflage watches every new TLS certificate in the public Certificate Transpar
 
 IBM Z Datathon 2026 · Track B (AI Secured)
 
+▶ **Demo video:** _link coming soon_ <!-- TODO: add the demo video URL -->
+
+## Theme 2: AI Secured
+
+Scamouflage uses AI to protect people from scam sites, and keeps that AI itself secure from end to end:
+
+- **Trusted input.** Every certificate's signature is checked against its issuer before the model sees it, so a forged or corrupted log entry can't feed the AI fake domains (99.993% verified, 0 failures, over 2 million live certificates).
+- **Tamper-evident output.** Every alert and the browser blocklist are signed with Ed25519 on IBM's CPACF crypto hardware. Changing a single score or byte makes the signature invalid.
+- **Private by design.** Users get protection without sharing their browsing (see [Privacy design](#privacy-design)).
+- **Precision first, with reasons.** A false alarm on a real business is worse than a missed scam, so the model is tuned for very few false alarms, and every alert says why in plain words built from measured facts (e.g. "Registered 3 hours ago via a high-risk registrar").
+
 ## How it fits together
 
 ```
@@ -17,6 +28,37 @@ CT logs ─► certstream-server-go :8080 ─► ingest/consumer.py ─► verif
 ```
 
 Interfaces are in **[CONTRACTS.md](CONTRACTS.md)**. Read it before touching code.
+
+## Results
+
+Held-out test set, split by scam campaign so the model is tested on campaigns it never saw in training: **414 toll, delivery and government scam domains vs. 79,164 normal sites** (model `stage1-20261017T2046`).
+
+| | Scams caught (recall) | Right when it warns (precision) | False alarms per 10k normal sites |
+|---|---:|---:|---:|
+| **Scamouflage** | **88.4%** | **98.9%** | **0.51** |
+| Keyword rule (baseline) | 100% | 91.0% | 5.18 |
+
+- The keyword rule catches every scam but raises **about 10× more false alarms**. Ours trades a little recall for far fewer wrong warnings on real businesses.
+- PR-AUC is 0.99. Counting borderline names that are sent on to the Stage 3 registration check, 99.5% of scams are flagged or reviewed.
+- These numbers are before Stage 3, which removes old, real businesses from alerts. Live numbers are served by `GET /api/results`.
+
+## Why LinuxONE
+
+Checking ~885 new certificates per second and signing every alert is crypto-heavy. On LinuxONE the CPACF crypto hardware does that work. We measured it on our VM (IBM z17, machine type 9175, 3 vCPU) by running the same code on the same real data twice, with CPACF on and with OpenSSL forced to software only:
+
+| Workload (real CT data) | CPACF on | Software only | Speed-up |
+|---|---:|---:|---:|
+| Verify certificate signatures (all issuers) | 8,122 /s | 1,871 /s | **4.3×** |
+| … ECDSA P-384 issuers | 6,479 /s | 902 /s | **7.2×** |
+| Ed25519 alert signing | 28,082 /s | 13,949 /s | **2.0×** |
+| SHA-256 bulk hashing | 4,543 MB/s | 275 MB/s | **16.5×** |
+| RSA issuers (not accelerated by CPACF) | 11,336 /s | 10,874 /s | 1.0× |
+
+- **Live:** about 1 hour of the real stream, **2,040,206 certificates, 0.207 ms each, 0 dropped, 0.01 s behind live**, on 3 vCPUs.
+- **Proof the chip did it:** the z17's own CPACF counters rose by 161,243 Ed25519 signatures during a test that signed 161,241 alerts (plus 2 test signatures).
+- RSA shows 1.0× because CPACF doesn't accelerate RSA; we report that rather than hide it.
+
+Full method and every number: [docs/crypto.md](docs/crypto.md).
 
 | Folder | Owner | What |
 |---|---|---|
@@ -67,7 +109,7 @@ Swap your real function into your file (e.g. `model/model.py`) and run the consu
 
 ## API (Role F)
 
-`api/server.py` (aiohttp, `127.0.0.1:8000`) reads the consumer's DB read-only and the JSON files in `data/`. Each data response has `"source": "live"`, or `"mock"` when its input is missing.
+`api/server.py` (aiohttp, `127.0.0.1:8000`) reads the consumer's DB read-only and the JSON files in `data/`. It serves real data only: each response has `"source": "live"`, and a missing input gives `503` with `"source": "unavailable"`.
 
 - `GET /api/stats`, `/api/results`, `/api/leadtime`, `/api/hardware`: `stats.json`, `results.json`, `leadtime.json`, `hardware.json` as-is.
 - `GET /api/cpacf/live` (alias `/api/cpacf`): `cpacf_live.json` as-is (live CPACF counter rates).
@@ -105,9 +147,36 @@ Serve the list on the VM (localhost only): `.venv/bin/python -m backend.blocklis
 
 To run it: open the SSH tunnel (`ssh -L 8000:localhost:8000 user@vm`), go to `chrome://extensions`, turn on Developer mode, and click *Load unpacked* on `extension/`. Demo mode flags a harmless local test page, so the demo never opens a real scam site. After the blocklist key changes (`extension/config.js` `LIVE_KEYS`), click *reload* on the extension in `chrome://extensions`, or it rejects the new list.
 
+## Privacy design
+
+- **We never see your browsing.** The extension downloads the whole blocklist and checks each site on your own device. No visited URL or domain is ever sent to us.
+- **The list contains only hashes.** The blocklist publishes SHA-256 hashes of flagged hostnames, not the domains.
+- **Signed, so it can't be swapped.** The extension accepts the list only if its Ed25519 signature checks out against a public key built into the extension.
+- **Only public data in.** The AI reads public Certificate Transparency logs and public phishing feeds. We collect nothing about users.
+- **Locked-down server.** The API listens only on the VM's localhost and is reached through an SSH tunnel. Private signing keys are created on the VM and never leave it.
+
 ## Safety
 
 We never visit scam sites. Domains are shown as plain text with links to [crt.sh](https://crt.sh) only. Signing keys never leave the VM and are git-ignored.
+
+## IBM AI/ML labs
+
+Both mandatory IBM AI/ML labs were run on our LinuxONE z17 VM on Oct 17, 2026. Notebooks with outputs and results are in [docs/labs/](docs/labs/README.md):
+
+- **Fraud detection LSTM** (TensorFlow/Keras): 99.84% test accuracy and 6,912 sequences/s inference, with the `ibm-zdnn-plugin` 2.3.0 enabled. We didn't measure how much of the work ran on the NNPA AI accelerator.
+- **Loan approval** (predictive + generative AI): XGBoost risk model (99.7% low risk), IBM Granite document extraction, BM25 retrieval over lending policies, and a final *Approve* recommendation.
+
+## Team
+
+| Role | Name | Owns |
+|---|---|---|
+| A · Platform | _TODO_ | CT stream, consumer, recording and replay, infra scripts |
+| B · Labels | _TODO_ | phishing feeds → `labels`, lead time |
+| C · Model | _TODO_ | features, model, baselines, `results.json` |
+| D · Crypto | _TODO_ | certificate verification, alert signing, CPACF benchmarks |
+| E · Campaigns | _TODO_ | grouping alerts into scam campaigns |
+| F · API and dashboard | Jahir Perez | API on :8000, dashboard |
+| Extension | _TODO_ | Chrome extension and signed blocklist |
 
 ## Crypto (Role D) on the VM
 
