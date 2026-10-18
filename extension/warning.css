@@ -154,54 +154,6 @@ button.outline:hover { background: rgba(255, 255, 255, 0.12); border-color: #fff
 button.outline:focus-visible { outline: 3px solid #ffeb3b; outline-offset: 3px; }
 button.outline:disabled { opacity: 0.6; cursor: default; }
 
-/* Report panel */
-.report {
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 14px;
-  padding: 20px 24px;
-  margin: 0 0 24px;
-}
-.report-status { font-size: 16px; line-height: 1.5; margin: 0 0 12px; }
-.report-status.err { font-weight: 600; }
-.report-meta {
-  display: grid;
-  grid-template-columns: 90px 1fr;
-  row-gap: 6px;
-  column-gap: 12px;
-  margin: 0 0 12px;
-  font-size: 15px;
-}
-.report-meta dt { opacity: 0.8; }
-.report-meta dd { margin: 0; word-break: break-word; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.report-body {
-  width: 100%;
-  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: #1b1b1b;
-  background: #fff8f7;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 10px;
-  padding: 12px 14px;
-  resize: vertical;
-}
-.report-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0 10px; }
-.report-btn {
-  display: inline-block;
-  background: #ffffff;
-  color: #b3261e;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 18px;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-}
-.report-btn:hover { background: #fce8e6; }
-.report-btn:focus-visible { outline: 3px solid #ffeb3b; outline-offset: 3px; }
-.report-note { font-size: 14px; opacity: 0.9; }
-.report-fine { font-size: 13px; opacity: 0.8; line-height: 1.5; margin: 8px 0 0; }
+.report-hint { font-size: 14px; opacity: 0.9; margin: -8px 0 16px; }
 
 .fineprint { font-size: 13px; opacity: 0.8; line-height: 1.5; margin: 0; }
