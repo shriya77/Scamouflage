@@ -134,7 +134,7 @@ const isKnown = a => Number(a.stage) === 0;   // stage 0 = already on a known pu
 
 // ---------- Offline samples (pipeline counters only; never accuracy) ----------
 const SAMPLE = {
-  stats: { checked: 8563272, rate: 447, verifiedPct: 99.99, verifyMs: 0.21, lag: 0.09 },
+  stats: { checked: 8563272, rate: 447, verifiedPct: 100, failed: 0, verifyMs: 0.21, lag: 0.09 },
   bench: {
     machine_type: '9175',
     results: {
@@ -172,7 +172,7 @@ function feedDomains(list) {
 }
 function extractDomains(obj) {
   if (!obj) return null;
-  return pick(obj, 'recent_domains', 'sample_domains', 'domains', 'recent', 'stream') ||
+  return pick(obj, 'recent_names', 'recent_domains', 'sample_domains', 'domains', 'recent', 'stream') ||
          (obj.domain && obj.type !== 'alert' ? [obj.domain] : null);
 }
 function fhFrame(now) {
@@ -332,12 +332,16 @@ async function loadDashboard() {
   // ---- Top counters ----
   let stats;
   if (statsRaw) {
+    // Of the certificates we could check: ok / (ok + fail). unknown_issuer (mostly precerts with no
+    // certificate bytes, or an issuer not cached yet) has nothing to check, so it isn't counted either way.
     const v = statsRaw.verify || {};
-    const vTotal = (v.ok || 0) + (v.unknown_issuer || 0) + (v.failed || 0) + (v.bad || 0);
+    const failed = (v.fail || 0) + (v.failed || 0) + (v.bad || 0);
+    const checkable = (v.ok || 0) + failed;
     stats = {
       checked: pick(statsRaw, 'processed_total', 'certs_total'),
       rate: pick(statsRaw, 'certs_per_s'),
-      verifiedPct: vTotal ? Math.floor((v.ok / vTotal) * 10000) / 100 : null,
+      verifiedPct: checkable ? Math.floor(((v.ok || 0) / checkable) * 10000) / 100 : null,
+      failed: checkable ? failed : null,
       verifyMs: pick(statsRaw, 'avg_verify_ms'),
       lag: pick(statsRaw, 'lag_s'),
     };
@@ -357,9 +361,10 @@ async function loadDashboard() {
 
   const bench = benchCache || SAMPLE.bench;
   const verifyX = bench.results?.['verify (real CT certs)']?.speedup;
-  $('#stat-hw-sub').textContent = verifyX
-    ? `Checked on IBM CPACF, ${(+verifyX).toFixed(1)}× faster than software`
-    : 'Each certificate checked against its issuer';
+  const failedText = stats.failed != null ? `${fmt(stats.failed)} failed · ` : '';
+  $('#stat-hw-sub').textContent = failedText + (verifyX
+    ? `checked on IBM CPACF, ${(+verifyX).toFixed(1)}× faster than software`
+    : 'each checked against its issuer');
 
   // ---- Alerts: new vs already-known, breakdown, catch moment ----
   const list = alertsRaw ? normalizeAlerts(alertsRaw) : [];
@@ -391,7 +396,7 @@ async function loadDashboard() {
 function renderBreakdown(cats) {
   const box = $('#breakdown');
   box.replaceChildren();
-  const rows = ['toll', 'delivery', 'gov', 'other'].map(k => [k, cats[k] || 0]).filter(([k, v]) => k !== 'other' || v > 0);
+  const rows = ['toll', 'delivery', 'gov'].map(k => [k, cats[k] || 0]);   // no "other" tile
   const max = Math.max(1, ...rows.map(r => r[1]));
   rows.forEach(([k, v]) => {
     const meta = CAT[k] || CAT.other;
@@ -440,13 +445,22 @@ function renderResults(raw, lead, certsPerSec) {
     return;
   }
   const pct = v => Math.round(v <= 1 ? v * 100 : v) + '%';
-  if (faDay != null) {
+  if (fa10k != null) {
+    const h = el('div', 'metric metric-hero');
+    h.append(el('div', 'metric-value', (+fa10k).toFixed(2)),
+      el('div', 'metric-label', 'False alarms per 10,000 normal sites'),
+      el('div', 'metric-tech', 'Real websites wrongly flagged, on the held-out test set'));
+    if (faDay != null) {
+      h.append(el('div', 'metric-secondary', faDayEstimated
+        ? `About ${fmt(faDay)} per day at today's live rate of ${fmt(certsPerSec)} certificates/s (estimate)`
+        : `About ${fmt(faDay)} per day on the live stream`));
+    }
+    box.append(h);
+  } else if (faDay != null) {
     const h = el('div', 'metric metric-hero');
     h.append(el('div', 'metric-value', fmt(faDay)),
       el('div', 'metric-label', 'False alarms per day'),
-      el('div', 'metric-tech', faDayEstimated
-        ? `Estimated: ${(+fa10k).toFixed(2)} per 10,000 certificates × today's live rate of ${fmt(certsPerSec)}/s`
-        : 'Normal websites wrongly flagged, out of the full live stream'));
+      el('div', 'metric-tech', 'Normal websites wrongly flagged, out of the full live stream'));
     box.append(h);
   }
   const grid = el('div', 'metrics');

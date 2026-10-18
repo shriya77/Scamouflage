@@ -442,3 +442,5 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 48px; }
 .baseline-table td { padding: 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .baseline-table tr.ours td { font-weight: 600; color: var(--forest); background: var(--sage-soft); }
 .more-names { font-weight: 600; color: var(--forest); }
+.metric-secondary { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.metric-hero .metric-secondary { color: #B9C9B3; border-top: 1px solid rgba(255,255,255,.15); padding-top: 6px; }
