@@ -4,7 +4,7 @@ Everything runs on the LinuxONE VM as `linux1`, from `~/scamouflage` (data in `~
 reached through the `data` link). Python is always `~/scamouflage/.venv/bin/python`.
 
 ```bash
-ssh linux1@148.100.79.76
+ssh user@<vm-ip>
 cd ~/scamouflage
 ```
 
@@ -86,7 +86,7 @@ Check: `curl -s localhost:8000/health`, `curl -s 'localhost:8000/api/alerts?limi
 Port 8000 is not reachable from the internet (the VM firewall only lets SSH in). On the demo laptop:
 
 ```bash
-ssh -N -L 8000:localhost:8000 linux1@148.100.79.76
+ssh -N -L 8000:localhost:8000 user@<vm-ip>
 ```
 
 then open <http://localhost:8000/>. The browser extension uses `http://localhost:8000/api/blocklist` through the same tunnel.
