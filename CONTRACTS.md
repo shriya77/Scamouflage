@@ -99,7 +99,7 @@ Write JSON **atomically** (write `x.tmp` then `os.replace`) so the API never rea
 
 ## 5. API and website (Role F, `api/server.py`, port 8000)
 
-Runs in tmux `cc-api` via `infra/start_api.sh` (auto-restart, log `data/api.log`), bound to **127.0.0.1:8000**. The VM firewall only lets SSH in, so from outside use a tunnel: `ssh -L 8000:localhost:8000 linux1@148.100.79.76`, then `http://localhost:8000/`.
+Runs in tmux `cc-api` via `infra/start_api.sh` (auto-restart, log `data/api.log`), bound to **127.0.0.1:8000**. The VM firewall only lets SSH in, so from outside use a tunnel: `ssh -L 8000:localhost:8000 user@<vm-ip>`, then `http://localhost:8000/`.
 
 **Real data only.** Every JSON answer carries `"source": "live"`. If a source doesn't exist yet (no `stats.json`, no DB), the endpoint answers **503** `{"error": "... not available yet", "source": "unavailable"}`. Nothing is ever made up (there are no mock answers).
 

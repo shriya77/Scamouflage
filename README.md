@@ -1,10 +1,10 @@
 # Scamouflage
 
-**Catch toll and USPS scam sites the moment their HTTPS certificate is issued, before the first text goes out.**
+**Catch toll, delivery and government scam sites the moment their HTTPS certificate is issued, before the first text goes out.**
 
-Scamouflage watches every new TLS certificate in the public Certificate Transparency logs. That's about 885 unique certificates per second, live, on an IBM LinuxONE (z17) VM. It verifies each certificate's signature and scores its domains with an ML model trained on real phishing feeds. When a domain looks like a toll or USPS smishing site (e.g. `ezpass.com-xyz.win`), it raises an alert signed with CPACF hardware crypto.
+Scamouflage watches every new TLS certificate in the public Certificate Transparency logs. That's about 885 unique certificates per second, live, on an IBM LinuxONE (z17) VM. It verifies each certificate's signature and scores its domains with an ML model trained on real phishing feeds. When a domain looks like a toll, delivery or government smishing site (e.g. `ezpass.com-xyz.win`), it raises an alert signed with CPACF hardware crypto.
 
-IBM Z Datathon 2026 · Track B (AI Secured)
+IBM Z Datathon 2026 · Theme 2: AI Secured
 
 ▶ **Demo video:** _link coming soon_ <!-- TODO: add the demo video URL -->
 
@@ -131,7 +131,7 @@ SCAM_DB=/home/linux1/tolltrap/data/scamouflage.db .venv/bin/python api/server.py
 From your laptop, open the tunnel, then use `http://localhost:8000`:
 
 ```bash
-ssh -N -o ServerAliveInterval=30 -L 8000:127.0.0.1:8000 linux1@148.100.79.76
+ssh -N -o ServerAliveInterval=30 -L 8000:127.0.0.1:8000 user@<vm-ip>
 ```
 
 ## Browser extension
@@ -168,15 +168,14 @@ Both mandatory IBM AI/ML labs were run on our LinuxONE z17 VM on Oct 17, 2026. N
 
 ## Team
 
-| Role | Name | Owns |
-|---|---|---|
-| A · Platform | _TODO_ | CT stream, consumer, recording and replay, infra scripts |
-| B · Labels | _TODO_ | phishing feeds → `labels`, lead time |
-| C · Model | _TODO_ | features, model, baselines, `results.json` |
-| D · Crypto | _TODO_ | certificate verification, alert signing, CPACF benchmarks |
-| E · Campaigns | _TODO_ | grouping alerts into scam campaigns |
-| F · API and dashboard | Jahir Perez | API on :8000, dashboard |
-| Extension | _TODO_ | Chrome extension and signed blocklist |
+| Name | Role |
+|---|---|
+| Shriya | Platform, live stream, crypto, model |
+| Vaishnavi | Data, name model, decision engine |
+| Swarna | Extension and integration |
+| Shadow | Stage 3 domain verifier |
+| Bhargav | Dashboard and UI |
+| Jahir | Backend API and integration |
 
 ## Crypto (Role D) on the VM
 
