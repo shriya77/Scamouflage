@@ -151,6 +151,99 @@ def build_campaigns(alerts, min_size=2):
     return sorted(out, key=lambda c: c["count"], reverse=True)
 
 
+# ---------------------------------------------------------------- risk score
+
+try:  # same offline PSL setup as model/stage0.py: x.pages.dev / x.github.io are their own sites
+    import tldextract
+    _EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None,
+                                     include_psl_private_domains=True)
+except ImportError:
+    _EXTRACT = None
+
+BIG_BRANDS = {"ezpass": "E-ZPass", "epass": "E-PASS", "sunpass": "SunPass", "txtag": "TxTag",
+              "ntta": "NTTA", "ipass": "I-PASS", "usps": "USPS", "ups": "UPS", "fedex": "FedEx",
+              "dhl": "DHL", "irs": "IRS", "dmv": "DMV"}
+OTHER_BRAND_WEIGHT = 0.8
+FRESHNESS = ((1, 1.0), (7, 0.9), (30, 0.75), (365, 0.55))   # (age_days below, factor)
+OLD_FRESHNESS = 0.35
+UNKNOWN_FRESHNESS = 0.7
+
+
+def registered_site(host):
+    """pay.ezpass.com-xk2.win -> com-xk2.win, evil.pages.dev -> evil.pages.dev (eTLD+1)."""
+    h = str(host or "").strip().lower().removeprefix("*.").rstrip(".")
+    if _EXTRACT is not None:
+        e = _EXTRACT(h)
+        if e.suffix:
+            return f"{e.domain}.{e.suffix}" if e.domain else h
+    return ".".join(h.split(".")[-2:])
+
+
+def _age(age_days):
+    """age_days as a float, or None when missing/unparseable/negative."""
+    try:
+        age = float(age_days)
+    except (TypeError, ValueError):
+        return None
+    return age if age >= 0 else None  # NaN fails >= too
+
+
+def freshness(age_days):
+    age = _age(age_days)
+    if age is None:
+        return UNKNOWN_FRESHNESS
+    for below, factor in FRESHNESS:
+        if age < below:
+            return factor
+    return OLD_FRESHNESS
+
+
+def brand_key(brand):
+    """'E-ZPass' / 'ezpass' / 'I-PASS' -> 'ezpass' / 'ezpass' / 'ipass'."""
+    return re.sub(r"[^a-z0-9]", "", str(brand or "").lower())
+
+
+def age_text(age):
+    if age < 1:
+        return f"{max(1, round(age * 24))}h"
+    if age < 365:
+        days = int(age)
+        return f"{days} day" + ("" if days == 1 else "s")
+    years = int(age // 365)
+    return f"{years} year" + ("" if years == 1 else "s")
+
+
+def risk_fields(alert):
+    """risk 0-100 = score x freshness(age_days) x brand weight, plus level and reasons."""
+    try:
+        score = min(max(float(alert.get("score") or 0), 0.0), 1.0)
+    except (TypeError, ValueError):
+        score = 0.0
+    key = brand_key(alert.get("brand"))
+    weight = 1.0 if key in BIG_BRANDS else OTHER_BRAND_WEIGHT
+    risk = max(0, min(100, round(score * freshness(alert.get("age_days")) * weight * 100)))
+    age = _age(alert.get("age_days"))
+    reasons = [f"Model {score:.2f}",
+               f"Registered {age_text(age)} ago" if age is not None else "Registration date unknown"]
+    if key in BIG_BRANDS:
+        reasons.append(f"Big brand: {BIG_BRANDS[key]}")
+    return {"risk": risk,
+            "risk_level": "High" if risk >= 80 else "Medium" if risk >= 50 else "Low",
+            "risk_reasons": reasons}
+
+
+def add_risk(rows):
+    """Adds risk, risk_level, risk_reasons and campaign_size (alerts in `rows` on the same
+    registered site) to each alert in place. Existing fields are left as they are."""
+    sites = [registered_site(r.get("domain")) for r in rows]
+    counts = defaultdict(int)
+    for site in sites:
+        counts[site] += 1
+    for r, site in zip(rows, sites):
+        r.update(risk_fields(r), campaign_size=counts[site])
+    return rows
+
+
 # ---------------------------------------------------------------- sources
 
 JSON_FILES = ("stats.json", "results.json", "leadtime.json", "hardware.json", "cpacf_live.json")
@@ -229,9 +322,15 @@ async def alerts(request):
             stage = int(stage)
         except ValueError:
             raise bad_request("stage must be an integer")
+    sort = request.query.get("sort", "newest")
+    if sort not in ("newest", "risk"):
+        raise bad_request("sort must be 'newest' or 'risk'")
     rows = fetch_alerts(limit, since=since, stage=stage)
     if rows is None:
         raise unavailable("alerts database")
+    add_risk(rows)
+    if sort == "risk":  # highest risk first; stable, so ties stay newest first
+        rows.sort(key=lambda r: r["risk"], reverse=True)
     return ok({"items": rows}, "live")
 
 
