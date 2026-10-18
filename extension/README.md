@@ -238,7 +238,8 @@ node extension/tests/run-in-node.js
 | `alarms` | Re-download the list every 30 minutes, even after the service worker sleeps. |
 | `webNavigation` | See when a tab starts loading a page (main frame only) so it can be checked before you use it. Chrome shows this as "Read your browsing history". The URLs stay in the browser. |
 | `activeTab` | Lets the popup read the current tab's address while you have it open, to show its status. No broad `tabs` permission is needed: redirecting a tab to our own warning page works without it. |
-| host `http://localhost:8000/*`, `http://127.0.0.1:8000/*` | Lets the service worker download `/api/blocklist` through the SSH tunnel. |
+| host `http://148.100.79.76:8000/*` | Lets the service worker download `/api/blocklist` from our LinuxONE server (the default backend). |
+| host `http://localhost:8000/*`, `http://127.0.0.1:8000/*` | The same through an SSH tunnel, if the server isn't reachable directly. |
 | optional host `http://*/*`, `https://*/*` | **Not granted at install.** If you set a different backend URL in the options, Chrome asks for permission for just that one origin. |
 
 No content scripts are injected into pages, and nothing loads from the network
