@@ -47,6 +47,7 @@ OLD_DOMAIN_DAYS = 365    # HIGH + older than this -> false alarm removed ...
 VERY_HIGH_SCORE = 0.99   # ... unless the score is at least this
 NEW_DOMAIN_DAYS = 7      # MAYBE + younger than this -> scam
 NEW_RISKY_DAYS = 30      # MAYBE + younger than this + risky registrar -> scam
+GENERIC_T_HIGH = 0.97    # line for names whose only clue is a dictionary word (parcel, toll, citation, ...)
 
 # `stage` field = the last stage that decided this name
 STAGE_ALLOWLIST, STAGE_KNOWN, STAGE_GATE, STAGE_SCORED, STAGE_VERIFIED = -1, 0, 1, 2, 3
@@ -209,7 +210,10 @@ class Engine:
         for d, s1 in zip(gated, self._scores([d["host"] for d in gated])):
             b = self._boost(d["host"], leaf_cert)
             final = 1.0 - (1.0 - s1) * (1.0 - b)
-            verdict = "high" if final >= self.t_high else "maybe" if final >= self.t_low else "safe"
+            h = d["host"]
+            weak = (d["brand"] in F.GENERIC_WORDS or (d["brand"] is None and not F.fake_pattern(h)))
+            t_high = max(self.t_high, GENERIC_T_HIGH) if weak and not F.lure_signal(h) else self.t_high
+            verdict = "high" if final >= t_high else "maybe" if final >= self.t_low else "safe"
             d.update(s1=round(s1, 4), s2_boost=round(b, 4), score=round(final, 4),
                      verdict=verdict, stage=STAGE_SCORED)
         return decisions

@@ -39,7 +39,13 @@ BRANDS = sorted(_read_list(os.path.join(ROOT, "labels", "brands.txt"), True), ke
 OFFICIAL = set(_read_list(os.path.join(ROOT, "labels", "official.txt")))
 # Misspelling targets: only brand words of 6+ letters. Shorter ones (fedex, ipass, tolls, txtag) sit one or two
 # letters away from ordinary words (codex, class, tools, titan) and let lots of normal sites through the gate.
-TYPO_TARGETS = [(w, set(w), c) for w, c in BRANDS if len(w) >= 6 and "-" not in w]
+# Dictionary words in brands.txt. They are weaker evidence than real brand names (dhl, ezpass, usps):
+#  - never used for misspelling matches ("creation" is not a typo of "citation")
+#  - hidden inside another word they don't set a category (keepassdx, bepassbarr -> "other")
+#  - on their own (no lure word, no fake .com-/gov- trick) the engine needs a higher score (GENERIC_T_HIGH)
+GENERIC_WORDS = {"toll", "tolls", "paytoll", "tollway", "turnpike", "parcel", "redeliver", "citation",
+                 "violation", "courtfee", "epass", "ipass"}
+TYPO_TARGETS = [(w, set(w), c) for w, c in BRANDS if len(w) >= 6 and "-" not in w and w not in GENERIC_WORDS]
 
 # Registered domains that host many different scam pages (weebly.com, 000webhostapp.com, ...). Generated from
 # our own known-scam list by labels/hosting_platforms.py. On these, a domain's age belongs to the platform,
@@ -164,26 +170,45 @@ def brand_hits(text):
 _LURE_SET = None
 
 
-def brand_whole_word(host):
-    """True if a brand word appears as a WHOLE word in the subdomain/owner name: its own token (usps, dhl), or
-    glued only to digits or a lure word (ezpasspay, paytoll, usps24). False for brands hidden inside other
-    words (irshadwoodworks -> 'irs', coffeepass -> 'epass', denvercuredelivery -> 'redeliver')."""
+def whole_word_brand(host):
+    """(brand, category) for the first brand that appears as a WHOLE word in the subdomain/owner name: its
+    own token (usps, dhl), or glued only to digits or a lure word (ezpasspay, paytoll, usps24). None for
+    brands hidden inside other words (irshadwoodworks -> 'irs', coffeepass -> 'epass')."""
     global _LURE_SET
     if _LURE_SET is None:
         _LURE_SET = set(LURE_WORDS)
     sub, name, _ = split_host(host)
     for t in _tokens(f"{sub}.{name}"):
-        for w, _c in BRANDS:
+        for w, c in BRANDS:
             if t == w:
-                return True
+                return w, c
             if t.startswith(w) and len(t) > len(w):
                 rest = t[len(w):]
                 if rest.isdigit() or rest in _LURE_SET:
-                    return True
+                    return w, c
             if t.endswith(w) and len(t) > len(w):
                 rest = t[:-len(w)]
                 if rest.isdigit() or rest in _LURE_SET:
+                    return w, c
+    return None
+
+
+def brand_whole_word(host):
+    return whole_word_brand(host) is not None
+
+
+def lure_signal(host, ignore=()):
+    """True if the name has a lure word (pay, secure, login, verify, ...) besides the words in `ignore`.
+    Words of 3 letters (pay, fee, due) must start or end a word, so 'refinery' doesn't count as 'fine'."""
+    for t in _tokens(host):
+        for w in LURE_WORDS:
+            if w in ignore or w in GENERIC_WORDS:
+                continue
+            if len(w) <= 3:
+                if t == w or t.startswith(w) or t.endswith(w):
                     return True
+            elif w in t:
+                return True
     return False
 
 
@@ -235,12 +260,22 @@ def fake_pattern(host):
 def brand_gate(host):
     """The brand-word gate (MODEL_SPEC §3). Returns (passes, brand, category).
     Passes if the name has a toll/delivery/gov brand word, a misspelled brand, or a fake '.com-'/'gov-' pattern."""
+    # order: real brand name (dhl, ezpass, usps) > misspelled real brand > dictionary word as a whole word
+    #        (creative-parcel) > dictionary word hidden inside another word (keepassdx) > fake pattern
     hits = brand_hits(host)
-    if hits:
-        return True, hits[0][0], hits[0][1]
+    real = [h for h in hits if h[0] not in GENERIC_WORDS]
+    whole = whole_word_brand(host)
+    if whole and whole[0] not in GENERIC_WORDS:
+        return True, whole[0], whole[1]
+    if real:                       # real brand glued to other letters (fedexvjsozl.shop) keeps its category
+        return True, real[0][0], real[0][1]
     typo = brand_typo(host)
     if typo:
         return True, typo[0], typo[1]
+    if whole:                      # dictionary word standing alone (creative-parcel.pages.dev)
+        return True, whole[0], whole[1]
+    if hits:                       # only a dictionary word hidden inside another word (keepassdx -> epass)
+        return True, None, "other"
     if fake_pattern(host):
         return True, None, "other"
     return False, None, None

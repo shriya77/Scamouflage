@@ -74,7 +74,7 @@ def test_borderline_single_domain_rescued_by_stage3():
 
 
 def test_old_real_business_removed_by_stage3():
-    e = engine({"austin-toll-repair.com": 0.65})
+    e = engine({"austin-toll-repair.com": 0.98})  # generic word "toll" alone needs >= 0.97
     d = e.decide_host("austin-toll-repair.com")
     assert d["verdict"] == "high"
     f = e.finalize(d, ok(8 * 365))
@@ -113,8 +113,8 @@ def test_broken_stage2_does_not_break_engine():
 
 
 def test_no_stage3_answer():
-    e = engine({"a-toll.win": 0.9, "b-toll.win": 0.5})
-    high, maybe = e.decide_host("a-toll.win"), e.decide_host("b-toll.win")
+    e = engine({"a-ezpass.win": 0.9, "b-ezpass.win": 0.5})
+    high, maybe = e.decide_host("a-ezpass.win"), e.decide_host("b-ezpass.win")
     assert e.finalize(high, None)["verdict"] == "scam"                 # trust the score
     assert e.finalize(maybe, None)["verdict"] == "safe"                # precision first
     assert e.finalize(maybe, {"ok": False, "error": "timeout"})["verdict"] == "safe"
@@ -146,6 +146,24 @@ def test_hidden_brand_never_rescued():
         assert e.finalize(d, ok(1, "Gname.com", risky=True))["verdict"] == "safe"
     d = e.decide_host("usps-pay-now.top")
     assert e.finalize(d, ok(1, "Gname.com", risky=True))["verdict"] == "scam"
+
+
+def test_generic_word_alone_needs_higher_score():
+    # "parcel"/"toll" alone (no lure word, no fake pattern) -> 0.97 line; with a lure word -> normal line
+    e = engine({"creative-parcel.pages.dev": 0.925, "dispatchsecureparcels.sbs": 0.925,
+                "teroparcel.store": 0.987, "dhl875.pages.dev": 0.925})
+    assert e.decide_host("creative-parcel.pages.dev")["verdict"] == "maybe"
+    assert e.decide_host("dispatchsecureparcels.sbs")["verdict"] == "high"     # "secure" is a lure word
+    assert e.decide_host("teroparcel.store")["verdict"] == "high"              # above 0.97
+    assert e.decide_host("dhl875.pages.dev")["verdict"] == "high"              # real brand, normal line
+
+
+def test_hidden_generic_word_has_no_category():
+    from model import features as F
+    assert F.brand_gate("keepassdx-account-login.pages.dev") == (True, None, "other")
+    assert F.brand_gate("bepassbarr.rest") == (True, None, "other")
+    assert F.brand_gate("fedexvjsozl.shop")[2] == "delivery"                    # real brand keeps category
+    assert F.brand_gate("synth-creation-x1.wasmer.app")[0] is False             # not a typo of "citation"
 
 
 def test_very_high_score_survives_old_domain():
