@@ -547,7 +547,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // Messages from our own pages (popup, options, warning). Nothing here talks
-// to the backend except "syncNow", which only downloads the list.
+// to the backend except "syncNow", which only downloads the list, and
+// "draftReport", which sends one hostname after the user presses "Report this site".
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || !msg || typeof msg.type !== 'string') return false;
   handleMessage(msg)
@@ -572,6 +573,68 @@ async function getListInfo() {
     lastSuccessAt: sync.lastSuccessAt || null,
     lastAttemptAt: sync.lastAttemptAt || null,
     lastError: sync.lastError || null,
+  };
+}
+
+// "Report this site" on the warning page. This is the ONE place the extension
+// sends a hostname the user visited to the backend, and only because the user
+// pressed the button on a page that says so. The backend answers with a drafted
+// abuse e-mail to the site's registrar; the user sends it from their own mail
+// program. Nothing is sent by the server and nothing about the user is stored.
+async function draftReport(rawHost) {
+  const hostname = M.normalizeHostname(rawHost);
+  if (!hostname) return { error: 'No site to report.', code: 'bad_request' };
+  const settings = await getSettings();
+  if (settings.demoMode) {
+    // Demo mode never makes outside connections, so there is nothing to ask.
+    return { error: 'Reporting is off in Demo mode: the demo list is built in and the demo sites are not real.', code: 'demo' };
+  }
+  const url = settings.backendUrl.replace(/\/+$/, '') + '/api/abuse/draft';
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostname }),
+      cache: 'no-store',
+      credentials: 'omit',
+    });
+  } catch (err) {
+    return { error: 'Could not reach the Scamouflage server.', code: 'offline' };
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = null;
+  }
+  if (!res.ok || !data || typeof data !== 'object') {
+    let code = (data && typeof data.code === 'string') ? data.code : ('http_' + res.status);
+    // A 404 *without* our JSON error means the route itself is missing: the
+    // server is running an older version that has no reporting yet.
+    if (res.status === 404 && !(data && typeof data.code === 'string')) code = 'no_route';
+    else if (res.status >= 500) code = 'server_error';
+    return {
+      error: (data && typeof data.error === 'string') ? data.error : ('Server answered ' + res.status + '.'),
+      code,
+      status: res.status,
+    };
+  }
+  // Keep only what the warning page shows; it renders everything with textContent.
+  const r = data.report || {};
+  const c = data.contact || {};
+  const to = Array.isArray(r.to) ? r.to.filter((x) => typeof x === 'string') : [];
+  return {
+    hostname: String(data.hostname || hostname),
+    matched: String(data.matched || ''),
+    domain: String(data.domain || ''),
+    registrar: typeof c.registrar === 'string' ? c.registrar : '',
+    phone: typeof c.phone === 'string' ? c.phone : '',
+    contactError: typeof c.error === 'string' ? c.error : '',
+    to,
+    subject: typeof r.subject === 'string' ? r.subject : '',
+    body: typeof r.body === 'string' ? r.body : '',
+    mailto: typeof r.mailto === 'string' && r.mailto.startsWith('mailto:') ? r.mailto : '',
   };
 }
 
@@ -632,6 +695,9 @@ async function handleMessage(msg) {
       }
       return { ok: true };
     }
+
+    case 'draftReport':
+      return draftReport(String(msg.hostname || ''));
 
     case 'getAllowedHosts':
       return { hosts: await getAllowedHosts() };

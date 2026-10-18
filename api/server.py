@@ -427,6 +427,12 @@ def make_app():
         print("blocklist route: on")
     except ImportError as e:
         print(f"blocklist route: off ({e})")
+    try:  # "Report this site" in the extension + operator-only abuse reports (SCAM_ABUSE_MODE)
+        from backend.abuse_report import MODE as ABUSE_MODE, setup_abuse_routes
+        setup_abuse_routes(app)
+        print(f"abuse dispatcher: {ABUSE_MODE}")
+    except ImportError as e:
+        print(f"abuse dispatcher: off ({e})")
     return app
 
 

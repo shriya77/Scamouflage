@@ -6,7 +6,38 @@ full-page red warning before you use a flagged site.
 
 **Privacy:** every check happens inside your browser. The extension downloads
 the same list as everyone else (`GET /api/blocklist`) and compares SHA-256
-hashes of hostnames locally. The server never learns which sites you visit.
+hashes of hostnames locally. The server never learns which sites you visit,
+with one exception you control: pressing **Report this site** on the warning
+page sends that one hostname to `POST /api/abuse/draft` so the server can look
+up the registrar's abuse contact and draft the e-mail (see below).
+
+## Report this site
+
+The red warning page has a third button, **Report this site**. It turns the
+alert into a takedown request to the company the domain was registered with:
+
+1. background.js sends the flagged hostname to `POST /api/abuse/draft`
+   (`backend/abuse_report.py`). This is the only time a visited hostname leaves
+   the browser, and the panel on the page says so. It is off in Demo mode.
+2. The server finds the alert for that name (or a parent, down to the registered
+   domain) and only continues if it clears the same bar as the blocklist: score
+   ≥ 0.85 and a registration Stage 3 verified over RDAP (or a name already on a
+   public scam list). Below that it answers 409 and the page explains why.
+3. The server looks up the registrar's **abuse mailbox** in the domain's RDAP
+   record (rdap.org only; the scam site is never contacted) and drafts a
+   plain-text report: registered domain, registrar and IANA id, registration
+   date, certificate SHA-256, issuer, CT log, first-seen time, crt.sh and RDAP
+   links, the model's reasons and score, and the requested action
+   (`clientHold`).
+4. The page shows To / Registrar / Subject / the full text with **Open in my
+   mail app** (a `mailto:` link) and **Copy text**. The person sends it from
+   their own address, in their own name. The server sends nothing on this route
+   and logs nothing about who asked.
+
+The route is rate-limited per address (6/min, 40/h) and refuses names without
+an eligible alert, so it cannot be used to look up arbitrary domains. Operators
+on the VM additionally get `POST /api/abuse/report` (server-side sending, see
+`RUNBOOK.md`); the extension never uses that.
 
 ## How it works
 
@@ -238,12 +269,13 @@ node extension/tests/run-in-node.js
 | `alarms` | Re-download the list every 30 minutes, even after the service worker sleeps. |
 | `webNavigation` | See when a tab starts loading a page (main frame only) so it can be checked before you use it. Chrome shows this as "Read your browsing history". The URLs stay in the browser. |
 | `activeTab` | Lets the popup read the current tab's address while you have it open, to show its status. No broad `tabs` permission is needed: redirecting a tab to our own warning page works without it. |
-| host `http://148.100.79.76:8000/*` | Lets the service worker download `/api/blocklist` from our LinuxONE server (the default backend). |
+| host `http://148.100.79.76:8000/*` | Lets the service worker download `/api/blocklist` from our LinuxONE server (the default backend), and ask `/api/abuse/draft` for a report when you press **Report this site**. |
 | host `http://localhost:8000/*`, `http://127.0.0.1:8000/*` | The same through an SSH tunnel, if the server isn't reachable directly. |
 | optional host `http://*/*`, `https://*/*` | **Not granted at install.** If you set a different backend URL in the options, Chrome asks for permission for just that one origin. |
 
 No content scripts are injected into pages, and nothing loads from the network
-except the list. tweetnacl is bundled because Manifest V3 forbids remote code.
+except the list (and the report draft, when you ask for one). tweetnacl is
+bundled because Manifest V3 forbids remote code.
 
 ## tweetnacl
 
