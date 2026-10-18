@@ -1,7 +1,7 @@
-/* Scamouflage dashboard
- * Every number comes live from the LinuxONE API. If the connection drops,
- * pipeline counters fall back to example values with an "Offline sample" badge.
- * Accuracy numbers are NEVER faked: until /api/results has them, the card says "Evaluation running…".
+/* Scamouflage website
+ * Every live number comes from the LinuxONE API. If a value isn't available it shows "–" or the
+ * element is hidden; nothing is ever filled in with sample numbers.
+ * Static copy (the 26-minute replay funnel, 11,485/s, 432,589 sites) is recorded results, not live.
  */
 
 // ===================== CONFIG: edit these =====================
@@ -11,11 +11,11 @@ const CONFIG = {
   API_BASE: location.port === '8000' ? '' : 'http://localhost:8000',
 
   ENDPOINTS: {
-    stats:   '/api/stats',       // live pipeline counters (+ recent domain names for the firehose, when added)
+    stats:   '/api/stats',       // live pipeline counters + recent domain names for the stream
     alerts:  '/api/alerts',      // { items: [...] }
-    catches: '/api/alerts?limit=200', // "Latest 15 scams" tab: filtered and deduped on the client
+    catches: '/api/alerts?limit=200', // "Latest catches" tab: filtered and deduped on the client
     summary: '/api/alerts/summary', // { known_total, new_total, total }
-    results: '/api/results',     // model evaluation: precision, recall, pr_auc, false_alarms_per_10k, baselines
+    results: '/api/results',     // model evaluation: precision, recall, false_alarms_per_10k, baselines
     leadtime: '/api/leadtime',   // median_days, share_before_any_feed, n
     bench:   '/api/hardware',    // CPACF on/off benchmark (static, fetched once)
     cpacf:   '/api/cpacf/live',  // live CPACF activity counters
@@ -25,16 +25,16 @@ const CONFIG = {
   EXTENSION_URL: '#',            // optional: a download link for the extension folder (shows a Download button)
   POLL_MS: 2000,
   CATCHES_LIMIT: 15,
-  FIREHOSE_PX_PER_S: 120,        // stream scroll speed
-  CATCH_PAUSE_MS: 4500,          // how long the stream freezes on a catch
 };
 // Add ?replay to the URL to run a clearly-labelled demo replay (sample domains + a sample catch).
 const REPLAY = new URLSearchParams(location.search).has('replay');
 // ===============================================================
 
 const $ = (s, el = document) => el.querySelector(s);
-const fmt = n => (n == null || isNaN(n)) ? '–' : Math.round(n).toLocaleString();
+const fmt = n => (n == null || isNaN(n)) ? '–' : Math.round(n).toLocaleString('en-US');
 const pick = (o, ...keys) => { for (const k of keys) if (o && o[k] != null) return o[k]; return undefined; };
+const num = v => (v == null || v === '' || isNaN(+v)) ? null : +v;
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 async function getJSON(key) {
   try {
@@ -46,11 +46,9 @@ async function getJSON(key) {
     return data;
   } catch { return null; }
 }
-function setSim(key, isSim) { document.querySelectorAll(`[data-sim="${key}"]`).forEach(b => b.hidden = !isSim); }
 function setStatus(state, text) {
   const s = $('#status');
-  s.classList.remove('live', 'offline');
-  if (state) s.classList.add(state);
+  s.classList.toggle('offline', state === 'offline');
   $('#status-text').textContent = text;
 }
 function el(tag, cls, text) {
@@ -62,16 +60,16 @@ function el(tag, cls, text) {
 
 // ---------- Count numbers up smoothly ----------
 const shown = {};
-function countTo(id, target, decimals = 0, suffix = '') {
+function countTo(id, target, decimals = 0) {
   const node = document.getElementById(id);
   if (!node) return;
   if (target == null || isNaN(target)) { node.textContent = '–'; delete shown[id]; return; }
   const start = shown[id] ?? 0;
-  const t0 = performance.now(), dur = shown[id] == null ? 1200 : 900;
+  const t0 = performance.now(), dur = reduce ? 0 : (shown[id] == null ? 1200 : 900);
   const step = now => {
-    const p = Math.min(1, (now - t0) / dur);
+    const p = dur ? Math.min(1, (now - t0) / dur) : 1;
     const v = start + (target - start) * (1 - Math.pow(1 - p, 3));
-    node.textContent = (decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString()) + suffix;
+    node.textContent = decimals ? v.toFixed(decimals) : fmt(v);
     if (p < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -79,6 +77,7 @@ function countTo(id, target, decimals = 0, suffix = '') {
 }
 
 // ---------- Alerts: tolerant of field names ----------
+const SCAM_CATEGORIES = new Set(['toll', 'delivery', 'gov']);
 const TOLL = ['ntta','zipcash','tolltag','txtag','txdot','hctra','eztag','e-zpass','ezpass','sunpass','fastrak','thetollroads','ipass','ezdrive','quickpass','pikepass','peachpass','goodtogo','toll'];
 const DELIVERY = ['usps','ups','fedex','dhl','deliver','redeliver','parcel','package','shipping','tracking'];
 const GOV = ['dmv','irs','gov','citation','court','violation','ticket','fine'];
@@ -110,7 +109,6 @@ function normalizeAlert(a) {
   let reasons = pick(a, 'reasons', 'why', 'tags', 'explanations') ?? [];
   if (typeof reasons === 'string') reasons = reasons.split(/[;,|]/).map(s => s.trim()).filter(Boolean);
   const time = toDate(pick(a, 'ts', 'time', 'timestamp', 'cert_time', 'seen_at', 'created_at'));
-  const sig = pick(a, 'signature', 'sig', 'seal', 'signed', 'signature_verified', 'seal_verified', 'sig_valid');
   return {
     id: String(pick(a, 'cert_id', 'id', 'alert_id', 'uid') ?? `${domain}|${time?.getTime() ?? ''}`),
     domain,
@@ -119,10 +117,7 @@ function normalizeAlert(a) {
     category: String(pick(a, 'category', 'brand_type', 'type') ?? guessCategory(domain)).toLowerCase(),
     time,
     stage: pick(a, 'stage'),
-    sealed: sig === undefined ? null : !!sig,
-    crtsh: pick(a, 'crtsh_url', 'crtsh') || `https://crt.sh/?q=${encodeURIComponent(domain)}`,
-    confirmedBy: pick(a, 'confirmed_by', 'confirmed'),
-    campaign: pick(a, 'campaign', 'campaign_template'),
+    crtsh: pick(a, 'crtsh_url', 'crtsh') || null,
     demo: !!a.__demo,
   };
 }
@@ -132,113 +127,160 @@ function normalizeAlerts(raw) {
 }
 const isKnown = a => Number(a.stage) === 0;   // stage 0 = already on a known public list
 
-// ---------- Offline samples (pipeline counters only; never accuracy) ----------
-const SAMPLE = {
-  stats: { checked: 8563272, rate: 447, verifiedPct: 100, failed: 0, verifyMs: 0.21, lag: 0.09 },
-  bench: {
-    machine_type: '9175',
-    results: {
-      'verify (real CT certs)': { on: 8122, off: 1871, speedup: 4.34 },
-      'Ed25519 sign (alerts)':  { on: 28082, off: 13949, speedup: 2.01 },
-      'SHA-256 (cert DER)':     { on: 1437062, off: 219422, speedup: 6.55 },
-      'SHA-256 (bulk)':         { on: 4543, off: 275, speedup: 16.53 },
-    },
-    verify_by_algo: { 'ecdsa-p384': { speedup: 7.18 }, 'ecdsa-p256': { speedup: 5.02 }, 'rsa-2048': { speedup: 1.04 } },
-  },
-  cpacf: { groups: { ecdsa_verify_per_s: 264, sha_per_s: 22150 }, totals: { 'KDSA ECDSA Verify P256': 1690866, 'KDSA ECDSA Verify P384': 1775204 } },
-};
 const REPLAY_DOMAINS = ['shop-autumn-sale.com','mail.northwind-co.net','api.trailcam.io','blog.greenleafgardens.org','cdn.pixelforge.app','portal.lakeside-dental.com','www.quietharbor.inn','status.cloudkite.dev','learn.mathbridge.edu','m.citybikes.co','assets.bluefinmedia.tv','go.fernandpine.com','app.ledgerly.finance','www.riverbendvet.com','docs.tinyhttp.dev','images.harvestmarket.store','vpn.acme-corp.net','beta.storyloom.ai','www.oakhillchurch.org','grafana.internal-ops.cloud'];
 const REPLAY_CATCH = { domain: 'ntta.com-tollpay-x7q.win', score: 0.96, stage: 1, signature_verified: true,
   reasons: ['Toll agency name in front of a fake site', 'cheap_tld', 'Matches campaign brand.com-*.win'], __demo: true };
 
-// =================================================================
-// FIREHOSE: blurred live domains; a catch freezes it and de-cloaks
-// =================================================================
-const fh = {
-  queue: [], seen: new Set(), x: 0, last: 0, pausedUntil: 0, catchQueue: [],
-  track: null, strip: null, started: false, demoTimer: null,
+const CAT = {
+  toll: { label: 'Toll', sign: 'Toll scam' }, delivery: { label: 'Delivery', sign: 'Delivery scam' },
+  gov: { label: 'Government', sign: 'Government scam' }, other: { label: 'Other', sign: 'Phishing site' },
 };
+function timeAgo(d) {
+  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (s < 60) return `${Math.round(s)} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return d.toLocaleDateString();
+}
+function shortAgo(d) {
+  if (!d) return '';
+  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 86400) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86400)} d`;
+}
+
+// =================================================================
+// STREAM: real recent names drift past, blurred; real catches glow in rust
+// =================================================================
 // A plausible hostname: labels of letters/digits/-/_ (optional leading *.), at least one dot, ≤ 253 chars
 const HOSTNAME = /^(\*\.)?[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?)+$/i;
+const ROW_NAMES = 16;
+const stream = { names: [], seen: new Set(), hot: [], built: false, started: false };
+const rows = ['r1', 'r2', 'r3'].map(id => document.getElementById(id));
+
 function feedDomains(list) {
   if (!Array.isArray(list)) return;
   for (const d of list) {
     const raw = typeof d === 'string' ? d : (d?.domain ?? d?.name);
     const name = typeof raw === 'string' ? raw.trim() : '';
-    if (!name || name.length > 253 || !HOSTNAME.test(name) || fh.seen.has(name)) continue;   // skip empty/invalid
-    fh.seen.add(name);
-    fh.queue.push(name);
+    if (!name || name.length > 253 || !HOSTNAME.test(name) || stream.seen.has(name)) continue;   // skip empty/invalid
+    stream.seen.add(name);
+    stream.names.push(name);
   }
-  if (fh.seen.size > 5000) fh.seen = new Set([...fh.seen].slice(-2000));
-  if (fh.queue.length > 400) fh.queue.splice(0, fh.queue.length - 400);
-  if (fh.queue.length) $('#fh-wait').hidden = true;
+  if (stream.seen.size > 5000) stream.seen = new Set([...stream.seen].slice(-2000));
+  if (stream.names.length > 160) stream.names.splice(0, stream.names.length - 160);
+  if (!stream.built && stream.names.length >= 8) buildRows();
 }
 function extractDomains(obj) {
   if (!obj) return null;
   return pick(obj, 'recent_names', 'recent_domains', 'sample_domains', 'domains', 'recent', 'stream') ||
          (obj.domain && obj.type !== 'alert' ? [obj.domain] : null);
 }
-function fhFrame(now) {
-  const dt = fh.last ? Math.min(0.05, (now - fh.last) / 1000) : 0;
-  fh.last = now;
-  const paused = now < fh.pausedUntil;
-  $('.firehose').classList.toggle('paused', paused);
+const clip = n => n.length > 38 ? n.slice(0, 37) + '…' : n;
+function rowParts(i) {
+  const pool = stream.names, len = pool.length;
+  if (!len) return null;
+  const parts = [];
+  for (let j = 0; j < ROW_NAMES; j++) {
+    const k = len - 1 - (i * ROW_NAMES + j);
+    parts.push(el('span', null, clip(pool[((k % len) + len) % len])));
+    // every 5th name is a real catch, shown sharp in rust
+    if (j % 5 === 3 && stream.hot.length) parts.push(el('span', 'hot', stream.hot[(i * 4 + (j >> 2)) % stream.hot.length]));
+  }
+  return parts;
+}
+function fillRow(row, i) {
+  const parts = rowParts(i);
+  if (!parts) return;
+  row.replaceChildren(...parts, ...parts.map(p => p.cloneNode(true)));   // doubled so the loop is seamless
+}
+function buildRows() {
+  stream.built = true;
+  rows.forEach(fillRow);
+  $('#stream-wait').hidden = true;
+}
+// New names swap in at the end of each loop, so the drift never jumps
+rows.forEach((r, i) => r.addEventListener('animationiteration', () => fillRow(r, i)));
+if (reduce) setInterval(() => stream.built && rows.forEach(fillRow), 15000);
 
-  if (!paused) {
-    // A catch is waiting: de-cloak the item nearest the middle
-    if (fh.catchQueue.length) { triggerCatch(fh.catchQueue.shift(), now); }
-    else {
-      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-      fh.x -= (reduce ? 25 : CONFIG.FIREHOSE_PX_PER_S) * dt;
-    }
-  }
-  // drop items that scrolled off the left
-  const first = fh.track.firstElementChild;
-  if (first) {
-    const w = first.offsetWidth + 22;
-    if (fh.x + w < 0) { first.remove(); fh.x += w; }
-  }
-  // append new items on the right
-  const stripW = fh.strip.clientWidth;
-  if (fh.track.scrollWidth + fh.x < stripW + 300 && fh.queue.length) {
-    fh.track.append(el('span', 'fh-item', fh.queue.shift()));
-  }
-  fh.track.style.transform = `translateX(${fh.x}px)`;
-  requestAnimationFrame(fhFrame);
+// ---------- Catch sign ----------
+// Priority: a NEW toll/delivery/gov catch (stage != 0) > a known-list toll/delivery/gov site >
+// anything else. -1 = no domain, never shown.
+const heroRank = a => !String(a?.domain ?? '').trim() ? -1
+  : SCAM_CATEGORIES.has(a.category) ? (isKnown(a) ? 2 : 3) : 1;
+const sign = { cycle: [], queue: [], i: 0, hideTimer: null };
+
+function setCycle(list) {
+  const ranked = list.filter(a => heroRank(a) >= 0)
+    .sort((x, y) => heroRank(y) - heroRank(x) || (y.time?.getTime() || 0) - (x.time?.getTime() || 0));
+  sign.cycle = ranked.slice(0, 8);
+  const hot = [];
+  for (const a of ranked) { if (!hot.includes(a.domain)) hot.push(a.domain); if (hot.length >= 12) break; }
+  if (!hot.length) return;
+  const first = !stream.hot.length;
+  stream.hot = hot;
+  if (first && stream.built) rows.forEach(fillRow);   // show the catches now, not after the first loop
 }
-function triggerCatch(alert, now) {
-  if (!heroWins(alert)) return;   // empty, or worse than the catch already on the card
-  // Pick the stream item closest to the middle and turn it into the scam domain
-  const items = [...fh.track.children];
-  const mid = fh.strip.clientWidth / 2;
-  let best = null, bestD = Infinity;
-  for (const it of items) {
-    const c = it.offsetLeft + fh.x + it.offsetWidth / 2;
-    const d = Math.abs(c - mid);
-    if (d < bestD) { bestD = d; best = it; }
-  }
-  let target = best;
-  if (!target) { target = el('span', 'fh-item'); fh.track.append(target); }
-  target.textContent = alert.domain;
-  target.classList.add('caught');
-  fh.pausedUntil = now + CONFIG.CATCH_PAUSE_MS;
-  showCatchCard(alert, true);
+function addHot(domain) {
+  const first = !stream.hot.length;
+  stream.hot = [domain, ...stream.hot.filter(d => d !== domain)].slice(0, 12);
+  if (first && stream.built) rows.forEach(fillRow);
 }
-function startFirehose() {
-  if (fh.started) return;
-  fh.started = true;
-  fh.track = $('#fh-track'); fh.strip = $('#fh-strip');
-  requestAnimationFrame(fhFrame);
+function showSign(a) {
+  const c = CAT[a.category] || CAT.other;
+  const where = isKnown(a) ? 'already on a known scam list' : 'not on any blocklist';
+  const when = a.time ? `caught ${timeAgo(a.time)}` : 'caught';
+  $('#catchWhen').textContent = `${a.demo ? 'Demo replay: ' : ''}${c.sign}, ${when}, ${where}`;
+  $('#catchDomain').textContent = a.domain;                   // plain text, never a link
+  const why = $('#catchWhy');
+  why.textContent = a.reasons[0] || '';
+  why.hidden = !a.reasons.length;
+  $('#catchScore').textContent = Math.round(a.score * 100);
+  const box = $('#catch');
+  box.classList.add('show');
+  clearTimeout(sign.hideTimer);
+  sign.hideTimer = setTimeout(() => box.classList.remove('show'), reduce ? 6000 : 3800);
+}
+function nextCatch() {
+  const a = sign.queue.shift() || (sign.cycle.length ? sign.cycle[sign.i++ % sign.cycle.length] : null);
+  if (a) showSign(a);
+}
+
+const seenAlerts = new Set();
+let alertsPrimed = false;
+function handleAlerts(list) {
+  if (!alertsPrimed) {
+    list.forEach(a => seenAlerts.add(a.id));
+    alertsPrimed = true;
+    nextCatch();
+    return;
+  }
+  const fresh = list.filter(a => !seenAlerts.has(a.id));
+  fresh.forEach(a => seenAlerts.add(a.id));
+  fresh.reverse().filter(a => heroRank(a) >= 0).forEach(a => {   // oldest first
+    sign.queue.push(a);
+    if (SCAM_CATEGORIES.has(a.category)) addHot(a.domain);
+  });
+  if (sign.queue.length > 10) sign.queue.splice(0, sign.queue.length - 10);
+}
+
+function startStream() {
+  if (stream.started) return;
+  stream.started = true;
+  setInterval(nextCatch, reduce ? 7000 : 5200);
   connectWS();
   if (REPLAY) startReplay();
 }
 function startReplay() {
-  $('#fh-demo').hidden = false;
-  const loop = () => { fh.seen.clear(); feedDomains([...REPLAY_DOMAINS].sort(() => Math.random() - .5)); };
+  $('#stream-demo').hidden = false;
+  const loop = () => { stream.seen.clear(); feedDomains([...REPLAY_DOMAINS].sort(() => Math.random() - .5)); };
   loop(); setInterval(loop, 4000);
   setTimeout(function again() {
     const a = normalizeAlert({ ...REPLAY_CATCH, ts: Date.now() / 1000 });
-    fh.catchQueue.push(a);
+    addHot(a.domain);
+    sign.queue.push(a);
     setTimeout(again, 20000);
   }, 3500);
 }
@@ -254,7 +296,7 @@ function connectWS() {
     const msgs = Array.isArray(msg) ? msg : [msg];
     for (const m of msgs) {
       const d = (m && typeof m.data === 'object' && m.data) || m;   // server sends {type, source, data}
-      if (m.type !== 'alert') feedDomains(extractDomains(d));       // alerts never go into the blurred stream
+      if (m.type !== 'alert') feedDomains(extractDomains(d));       // alerts never go into the blurred names
       if (m.type === 'cpacf' && d.groups && d.available !== false) renderCpacf(d);
       const al = m.type === 'alert' ? d : (m.alert || null);
       if (al && alertsPrimed) handleAlerts([normalizeAlert(al)]);   // before the first poll, the poll covers it
@@ -264,77 +306,10 @@ function connectWS() {
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
-// ---------- Catch card ----------
-function showCatchCard(a, animate) {
-  if (heroRank(a) < 0) return;    // never render a card with no domain
-  heroShown = heroRank(a);
-  const card = $('#catch-card');
-  card.hidden = false;
-  const known = isKnown(a);
-  card.classList.toggle('known', known);
-  $('#cc-label').textContent = known ? 'Flagged · already on a known list' : 'New scam caught';
-  $('#cc-time').textContent = a.time ? timeAgo(a.time) : '';
-  $('#cc-demo').hidden = !a.demo;
-  const lv = level(a.score);
-  const sp = $('#cc-score');
-  sp.className = `score-pill ${lv}`; sp.textContent = Math.round(a.score * 100);
-  $('#cc-domain').textContent = a.domain;
-  const rs = $('#cc-reasons'); rs.replaceChildren();
-  a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
-  const link = $('#cc-crtsh'); link.href = a.crtsh;
-  $('#cc-stage').textContent = known ? 'Already listed by a public phishing feed' : 'Not on any public blocklist yet';
-  $('#cc-seal').hidden = a.sealed !== true;
-  if (animate) { card.classList.remove('snap'); void card.offsetWidth; card.classList.add('snap'); }
-}
-
-// ---------- Alert bookkeeping ----------
-// Catch card priority: a NEW toll/delivery/gov catch (stage != 0) > a known-list toll/delivery/gov
-// site > anything else ("other"). -1 = no domain, never shown.
-const heroRank = a => !String(a?.domain ?? '').trim() ? -1
-  : SCAM_CATEGORIES.has(a.category) ? (isKnown(a) ? 2 : 3) : 1;
-let heroShown = -1;               // rank of the catch on the card now
-// A new scam always takes the card; otherwise only something better, or an equally good scam
-const heroWins = a => {
-  const r = heroRank(a);
-  return r >= 0 && (r === 3 || r > heroShown || (r === heroShown && r >= 2));
-};
-
-const seenAlerts = new Set();
-let alertsPrimed = false;
-let latestAlerts = [];
-function handleAlerts(list) {
-  if (!alertsPrimed) {
-    list.forEach(a => seenAlerts.add(a.id));
-    alertsPrimed = true;
-    // Show the best catch without the animation: highest rank, newest first among equals
-    const best = list.reduce((b, a) => heroRank(a) > heroRank(b) ? a : b, null);
-    if (best) showCatchCard(best, false);
-    return;
-  }
-  const fresh = list.filter(a => !seenAlerts.has(a.id));
-  fresh.forEach(a => seenAlerts.add(a.id));
-  fresh.reverse().filter(a => heroRank(a) >= 0).forEach(a => fh.catchQueue.push(a));   // oldest first
-}
-
-// ---------- Rendering helpers ----------
-function timeAgo(d) {
-  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
-  if (s < 60) return `${Math.round(s)} s ago`;
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return d.toLocaleDateString();
-}
-const level = s => s >= .9 ? 'high' : s >= .75 ? 'mid' : 'low';
-const CAT = {
-  toll: { label: 'Toll' }, delivery: { label: 'Delivery' },
-  gov: { label: 'Government' }, other: { label: 'Other' },
-};
-
 // =================================================================
-// DASHBOARD
+// LIVE page
 // =================================================================
 let benchCache = null;
-let simTick = 0;
 async function loadDashboard() {
   const [statsRaw, alertsRaw, resultsRaw, benchRaw, cpacfRaw, summaryRaw, leadRaw] = await Promise.all([
     getJSON('stats'), getJSON('alerts'), getJSON('results'),
@@ -346,294 +321,211 @@ async function loadDashboard() {
   const apiUp = !!(statsRaw || alertsRaw || cpacfRaw);
   setStatus(apiUp ? 'live' : 'offline', apiUp ? 'Live' : 'Offline');
 
-  // ---- Firehose feed from stats (until the WebSocket is used) ----
   if (statsRaw) feedDomains(extractDomains(statsRaw));
+  renderStats(statsRaw, summaryRaw);
 
-  // ---- Top counters ----
-  let stats;
-  if (statsRaw) {
-    // Of the certificates we could check: ok / (ok + fail). unknown_issuer (mostly precerts with no
-    // certificate bytes, or an issuer not cached yet) has nothing to check, so it isn't counted either way.
-    const v = statsRaw.verify || {};
-    const failed = (v.fail || 0) + (v.failed || 0) + (v.bad || 0);
-    const checkable = (v.ok || 0) + failed;
-    stats = {
-      checked: pick(statsRaw, 'processed_total', 'certs_total'),
-      rate: pick(statsRaw, 'certs_per_s'),
-      verifiedPct: checkable ? Math.floor(((v.ok || 0) / checkable) * 10000) / 100 : null,
-      failed: checkable ? failed : null,
-      verifyMs: pick(statsRaw, 'avg_verify_ms'),
-      lag: pick(statsRaw, 'lag_s'),
-    };
-    setSim('stats', false);
-  } else {
-    simTick++;
-    stats = { ...SAMPLE.stats, checked: SAMPLE.stats.checked + simTick * SAMPLE.stats.rate * (CONFIG.POLL_MS / 1000) };
-    setSim('stats', true);
+  if (alertsRaw) {
+    const list = normalizeAlerts(alertsRaw);
+    setCycle(list);
+    handleAlerts(list);
   }
-  countTo('stat-checked', stats.checked);
-  countTo('stat-rate', stats.rate);
-  countTo('stat-hw', stats.verifiedPct, stats.verifiedPct === 100 ? 0 : 2, '%');
-  $('#stat-rate-sub').textContent = stats.verifyMs != null
-    ? `Each one verified in ${(+stats.verifyMs).toFixed(2)} ms · ${(+stats.lag || 0).toFixed(2)} s behind live`
-    : 'Live from public certificate logs';
-  $('#fh-rate').textContent = stats.rate ? `· showing a sample of ${fmt(stats.rate)} per second` : '';
-
-  const bench = benchCache || SAMPLE.bench;
-  const verifyX = bench.results?.['verify (real CT certs)']?.speedup;
-  const failedText = stats.failed != null ? `${fmt(stats.failed)} failed · ` : '';
-  $('#stat-hw-sub').textContent = failedText + (verifyX
-    ? `checked on IBM CPACF, ${(+verifyX).toFixed(1)}× faster than software`
-    : 'each checked against its issuer');
-
-  // ---- Alerts: new vs already-known, breakdown, catch moment ----
-  const list = alertsRaw ? normalizeAlerts(alertsRaw) : [];
-  latestAlerts = list;
-  if (alertsRaw) handleAlerts(list);
-  const knownCount = pick(summaryRaw, 'known_total') ?? pick(statsRaw, 'alerts_known', 'known_total') ?? list.filter(isKnown).length;
-  const newCount = pick(summaryRaw, 'new_total') ?? pick(statsRaw, 'alerts_new', 'new_total') ??
-                   Math.max(0, (pick(statsRaw, 'alerts_total') ?? list.length) - knownCount);
-  countTo('stat-new', newCount);
-  $('#stat-new').classList.toggle('hot', newCount > 0);
-  $('#stat-known').textContent = knownCount > 0
-    ? `Plus ${fmt(knownCount)} already on known lists`
-    : 'Not yet on any public blocklist';
-
-  renderBreakdown(await loadBreakdown(), !!alertsRaw);
-
-  // ---- Accuracy: real results or "Evaluation running…" ----
   renderResults(resultsRaw, leadRaw);
-
-  // ---- IBM panel ----
-  renderBench(bench);
-  setSim('bench', !benchCache);
-  if (cpacfRaw?.groups && cpacfRaw.available !== false) { renderCpacf(cpacfRaw); setSim('cpacf', false); }
-  else { renderCpacf(SAMPLE.cpacf); setSim('cpacf', true); }
+  if (benchCache) renderBench(benchCache);
+  renderCpacf(cpacfRaw?.groups && cpacfRaw.available !== false ? cpacfRaw : null);
 }
 
-// Scam types in the last 24 h. Its own query (the alerts list above is only the newest 100), each
-// site counted once. Only toll / delivery / gov get a row; "other" (generic phishing, almost all
-// already on public lists) is one quiet line so it can't drown the three that matter.
-const BREAKDOWN_HOURS = 24;
-async function loadBreakdown() {
-  try {
-    const since = Math.floor(Date.now() / 1000) - BREAKDOWN_HOURS * 3600;
-    const r = await fetch(`${CONFIG.API_BASE}${CONFIG.ENDPOINTS.alerts}?since=${since}&limit=1000`, { cache: 'no-store' });
-    if (!r.ok) return null;
-    const data = await r.json();
-    return data?.source === 'live' ? normalizeAlerts(data) : null;
-  } catch { return null; }
+// Stat line under the stream: each item is hidden until it has a real value
+function statItem(id, value, decimals = 0, animate = true) {
+  const node = document.getElementById(id);
+  const wrap = node.closest('[data-stat]');
+  const v = num(value);
+  wrap.hidden = v == null;
+  if (v == null) { delete shown[id]; return; }
+  if (animate) countTo(id, v, decimals);
+  else node.textContent = decimals ? v.toFixed(decimals) : fmt(v);
+}
+function renderStats(s, summary) {
+  statItem('cps', pick(s, 'certs_per_s'));
+  statItem('verifyMs', pick(s, 'avg_verify_ms'), 2, false);
+  statItem('certTotal', pick(s, 'processed_total', 'certs_total'));
+  statItem('newTotal', pick(summary, 'new_total') ?? pick(s, 'alerts_new'));
 }
 
-function renderBreakdown(list, reached) {
-  const box = $('#breakdown');
-  box.replaceChildren();
-  if (!list) {
-    box.append(el('p', 'bd-empty', reached ? 'No scam sites in the last 24 hours yet.' : 'Waiting for the live API…'));
-    return;
-  }
-  const bySite = new Map();                         // newest first: keep each site's newest alert
-  for (const a of list) {
-    const site = registeredSite(String(a.domain ?? '').toLowerCase());
-    if (site && !bySite.has(site)) bySite.set(site, a);
-  }
-  const groups = { toll: [], delivery: [], gov: [], other: [] };
-  for (const a of bySite.values()) (groups[a.category] || groups.other).push(a);
-  const keys = ['toll', 'delivery', 'gov'];
-  const total = keys.reduce((n, k) => n + groups[k].length, 0);
-  const max = Math.max(1, ...keys.map(k => groups[k].length));
-
-  const head = el('div', 'bd-total');
-  head.append(el('span', 'bd-total-num', fmt(total)),
-              el('span', 'bd-total-label', `toll, delivery & government scam sites caught in the last\u00a0${BREAKDOWN_HOURS}\u00a0hours`));
-  box.append(head);
-
-  for (const k of keys) {
-    const row = el('div', 'bd-row');
-    const top = el('div', 'bd-top');
-    top.append(el('span', 'bd-name', CAT[k].label), el('span', 'bd-num', fmt(groups[k].length)));
-    const track = el('div', 'bd-track');
-    const fill = el('div', 'bd-fill'); fill.style.width = (groups[k].length / max * 100) + '%';
-    track.append(fill);
-    const ex = groups[k][0];
-    row.append(top, track, el('div', 'bd-example', ex ? String(ex.domain) : 'none yet'));   // plain text, never a link
-    box.append(row);
-  }
-  if (groups.other.length) {
-    box.append(el('p', 'bd-other', `+ ${fmt(groups.other.length)} other phishing sites, mostly already on public blocklists`));
-  }
+// ---------- Accuracy bento: values from /api/results, count up once when scrolled to ----------
+const report = { visible: false };
+function countUp(node) {
+  if (reduce || node.dataset.animated || node.dataset.count == null) return;
+  node.dataset.animated = '1';
+  const end = parseFloat(node.dataset.count), dec = +(node.dataset.dec || 0), t0 = performance.now(), dur = 1600;
+  const tick = t => {
+    const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 4);
+    node.textContent = dec ? (end * e).toFixed(dec) : fmt(end * e);
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
-
+function setCount(id, value, dec = 0) {
+  const node = document.getElementById(id);
+  node.dataset.count = value; node.dataset.dec = dec;
+  node.textContent = dec ? (+value).toFixed(dec) : fmt(value);   // final value shows at rest
+  if (report.visible) countUp(node);
+}
+function setText(id, text) {
+  const node = document.getElementById(id);
+  node.hidden = !text;
+  node.textContent = text || '';
+}
 function renderResults(raw, lead) {
-  // /api/results: { precision, recall, pr_auc, false_alarms_per_10k, baselines: { unit42_regex, keyword_rule } }
-  // /api/leadtime: { median_days, min_days, max_days, share_before_any_feed, n }
   const r = raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results) ? raw.results : raw;
-  const recall = pick(r, 'recall', 'test_recall');
-  const prec   = pick(r, 'precision', 'test_precision');
-  const prAuc  = pick(r, 'pr_auc');
-  const fa10k  = pick(r, 'false_alarms_per_10k', 'fa_per_10k');
-  const leadOk = lead && Number(lead.n) > 0;
-  const leadDays = leadOk ? pick(lead, 'median_days') : null;
-  const leadShare = leadOk ? pick(lead, 'share_before_any_feed') : null;
-
-  const box = $('#metrics');
-  const hasAny = [recall, prec, fa10k].some(v => v != null && !isNaN(v)) || leadOk;
-  const key = JSON.stringify([recall, prec, prAuc, fa10k, leadDays, leadShare, lead?.n, r?.baselines]);
+  const key = JSON.stringify([r, lead?.n, lead?.median_days, lead?.share_before_any_feed]);
+  const box = $('#report');
   if (box.dataset.key === key) return;          // avoid re-rendering every poll
   box.dataset.key = key;
-  box.replaceChildren();
 
-  if (!hasAny) {
-    const p = el('div', 'eval-pending');
-    p.append(el('div', 'spinner'), el('strong', null, 'Evaluation running…'),
-      el('span', 'fine', 'Real test-set numbers appear here as soon as the model finishes evaluating. We never show placeholder accuracy.'));
-    box.append(p);
-    return;
-  }
-  const pct = v => Math.round(v <= 1 ? v * 100 : v) + '%';
-  if (fa10k != null) {
-    const h = el('div', 'metric metric-hero');
-    h.append(el('div', 'metric-value', (+fa10k).toFixed(2)),
-      el('div', 'metric-label', 'False alarms per 10,000 normal sites'),
-      el('div', 'metric-tech', 'Real websites wrongly flagged, on the held-out test set'));
-    box.append(h);
-  }
-  const grid = el('div', 'metrics');
-  const tiles = [];
-  if (recall != null) tiles.push([pct(recall), 'Scams caught', 'Recall on held-out test set']);
-  if (prec != null) tiles.push([pct(prec), 'Right when it warns', 'Precision']);
-  if (leadDays != null) tiles.push([leadDays < 2 ? `${Math.round(leadDays * 24)} h` : `${(+leadDays).toFixed(1)} days`, 'Head start on public blocklists', `Median over ${fmt(lead.n)} catches`]);
-  if (leadShare != null) tiles.push([pct(leadShare), 'Caught before any public feed', 'Share of catches we flagged first']);
-  if (prAuc != null && tiles.length < 4) tiles.push([(+prAuc).toFixed(2), 'PR-AUC', 'Overall ranking quality (1.0 is perfect)']);
-  tiles.forEach(([val, label, tech]) => {
-    const t = el('div', 'metric');
-    t.append(el('div', 'metric-value', val), el('div', 'metric-label', label), el('div', 'metric-tech', tech));
-    grid.append(t);
-  });
-  if (tiles.length) box.append(grid);
+  const pct = v => v <= 1 ? v * 100 : v;
+  const recallIncl = num(pick(r, 'recall_incl_stage3_review'));
+  const recall = recallIncl ?? num(pick(r, 'recall', 'test_recall'));
+  const prec = num(pick(r, 'precision', 'test_precision'));
+  const fa = num(pick(r, 'false_alarms_per_10k', 'fa_per_10k'));
+  const d = r?.detail || {};
+  const nScams = num(d.n_scams), tp = num(d.tp), fp = num(d.fp);
+  const kwFa = num(r?.baselines?.keyword_rule?.false_alarms_per_10k);
+  const nTest = num(pick(r, 'n_test_rows'));
 
-  // Model vs. simple baselines (only rows that have numbers)
-  const rows = [['Scamouflage AI', { recall, precision: prec, false_alarms_per_10k: fa10k }, true]];
-  const b = r?.baselines || {};
-  if (b.unit42_regex) rows.push(['Unit 42 regex patterns', b.unit42_regex, false]);
-  if (b.keyword_rule) rows.push(['Keyword rule', b.keyword_rule, false]);
-  const filled = rows.filter(([, v]) => v && ['recall', 'precision', 'false_alarms_per_10k'].some(k => v[k] != null));
-  if (filled.length > 1) {
-    const table = el('table', 'baseline-table');
-    const head = el('tr');
-    ['', 'Scams caught', 'Right when it warns', 'False alarms / 10k'].forEach(h => head.append(el('th', null, h)));
-    table.append(head);
-    filled.forEach(([name, v, ours]) => {
-      const tr = el('tr', ours ? 'ours' : '');
-      tr.append(el('td', null, name),
-        el('td', null, v.recall != null ? pct(v.recall) : '–'),
-        el('td', null, v.precision != null ? pct(v.precision) : '–'),
-        el('td', null, v.false_alarms_per_10k != null ? (+v.false_alarms_per_10k).toFixed(+v.false_alarms_per_10k < 1 ? 2 : 1) : '–'));
-      table.append(tr);
-    });
-    const wrap = el('div', 'baseline-wrap');
-    wrap.append(el('div', 'fine', 'Compared with simple rules on the same test set'), table);
-    box.append(wrap);
+  setText('acc-lead', nTest != null ? `Tested on ${fmt(nTest)} websites the model never saw during training.` : '');
+  $('#acc-pending').hidden = [recall, prec, fa].some(v => v != null);
+
+  $('#tile-recall').hidden = recall == null;
+  if (recall != null) {
+    setCount('recallN', pct(recall), 1);
+    let sub = '';
+    if (nScams) {
+      const caught = Math.round(pct(recall) / 100 * nScams);
+      sub = `${fmt(caught)} of ${fmt(nScams)} test scams.`;
+      if (recallIncl != null && tp != null && caught > tp) {
+        sub += ` ${fmt(tp)} from the web address alone, ${fmt(caught - tp)} more on a second check of how new the site is.`;
+      }
+    }
+    setText('recallSub', sub);
   }
+
+  $('#tile-prec').hidden = prec == null;
+  if (prec != null) {
+    setCount('precN', pct(prec), 1);
+    setText('precSub', tp != null && fp != null ? `${fmt(tp)} of ${fmt(tp + fp)} alarms were real scams` : '');
+  }
+
+  $('#tile-fa').hidden = fa == null;
+  if (fa != null) {
+    setCount('faN', fa, 1);
+    setText('faSub', kwFa != null ? `a brand-word filter makes ${kwFa.toFixed(1)}` : '');
+  }
+
+  // Lead time: only when at least one of our catches was later listed by a feed
+  const leadOk = lead && num(lead.n) > 0;
+  const days = leadOk ? num(lead.median_days) : null;
+  const share = leadOk ? num(lead.share_before_any_feed) : null;
+  $('#lead-tiles').hidden = days == null && share == null;
+  $('#tile-lead-days').hidden = days == null;
+  if (days != null) {
+    const hours = days < 2;
+    setCount('leadDaysN', hours ? Math.round(days * 24) : days, hours ? 0 : 1);
+    $('#leadDaysUnit').textContent = hours ? ' h' : ' days';
+    $('#leadDaysSub').textContent = `median over ${fmt(lead.n)} catches`;
+  }
+  $('#tile-lead-share').hidden = share == null;
+  if (share != null) setCount('leadShareN', pct(share));
 }
 
 // ---------- IBM chip + race ----------
 const MACHINES = { '9175': 'IBM z17', '9176': 'IBM z17', '3931': 'IBM z16', '3932': 'IBM z16', '8561': 'IBM z15', '8562': 'IBM z15' };
-let benchRendered = false;
 function renderBench(hw) {
+  if (renderBench.last === hw) return;
+  renderBench.last = hw;
   const m = MACHINES[String(hw.machine_type)];
-  $('#bench-machine').textContent = m
-    ? `Measured on our ${m} server (machine type ${hw.machine_type}), with the chip on vs. switched off`
-    : 'Measured on our server, with the chip on vs. switched off';
-  $('#chip-name').textContent = m ? m.toUpperCase() : 'IBM Z';
-  if (benchRendered && hw === renderBench.last) return;
-  renderBench.last = hw; benchRendered = true;
+  $('#chipName').textContent = m || 'IBM Z';
+  $('#ibm-machine').textContent = m ? `our ${m}` : 'our IBM Z server';
 
   const res = hw.results || {};
   const v = res['verify (real CT certs)'];
-  race.on = v?.on || 0; race.off = v?.off || 0;
-  $('#race-x').textContent = v?.speedup ? `${(+v.speedup).toFixed(1)}×` : '–';
+  const on = num(v?.on), off = num(v?.off);
+  const raceOk = on > 0 && off > 0;
+  $('#race').hidden = !raceOk;
+  $('#raceX').hidden = !raceOk;
+  if (raceOk) {
+    const max = Math.max(on, off);
+    $('#raceOnN').textContent = `${fmt(on)} / s`;
+    $('#raceOffN').textContent = `${fmt(off)} / s`;
+    [['#raceOn', on], ['#raceOff', off]].forEach(([sel, n]) => {
+      const bar = $(sel);
+      bar.style.width = (n / max * 100) + '%';
+      bar.classList.remove('grow'); void bar.offsetWidth; bar.classList.add('grow');
+    });
+    $('#raceX').textContent = `${(on / off).toFixed(1)}× faster checking real certificates`;
+  }
 
-  const items = [];
   const algo = hw.verify_by_algo || {};
-  if (algo['ecdsa-p384']) items.push([algo['ecdsa-p384'].speedup, 'ECDSA P-384 signature checks']);
-  if (algo['ecdsa-p256']) items.push([algo['ecdsa-p256'].speedup, 'ECDSA P-256 signature checks']);
-  if (res['SHA-256 (bulk)']) items.push([res['SHA-256 (bulk)'].speedup, 'SHA-256 hashing (bulk)']);
-  if (res['SHA-256 (cert DER)']) items.push([res['SHA-256 (cert DER)'].speedup, 'Certificate fingerprints']);
-  if (res['Ed25519 sign (alerts)']) items.push([res['Ed25519 sign (alerts)'].speedup, 'Signing our alerts (Ed25519)']);
+  const items = [];
+  if (res['SHA-256 (bulk)']) items.push([res['SHA-256 (bulk)'].speedup, 'SHA-256 hashing']);
+  if (algo['ecdsa-p384']) items.push([algo['ecdsa-p384'].speedup, 'ECDSA P-384 checks']);
+  if (res['SHA-256 (cert DER)']) items.push([res['SHA-256 (cert DER)'].speedup, 'certificate fingerprints']);
+  if (algo['ecdsa-p256']) items.push([algo['ecdsa-p256'].speedup, 'ECDSA P-256 checks']);
+  if (res['Ed25519 sign (alerts)']) items.push([res['Ed25519 sign (alerts)'].speedup, 'signing our alerts']);
   const rsa = algo['rsa-2048'] || algo['rsa-4096'];
-  if (rsa) items.push([rsa.speedup, 'RSA (not accelerated by CPACF)']);
-  const box = $('#speed-list'); box.replaceChildren();
-  items.forEach(([x, label]) => {
-    const it = el('div', `speed-item ${x < 1.5 ? 'flat' : ''}`);
-    it.append(el('div', 'sx', `${(+x).toFixed(1)}×`), el('div', 'sl', label));
-    box.append(it);
-  });
+  if (rsa) items.push([rsa.speedup, 'RSA, not accelerated']);
+  const box = $('#speedups');
+  const valid = items.filter(([x]) => num(x) != null);
+  box.replaceChildren(...valid.map(([x, label]) => {
+    const it = el('div', +x < 1.5 ? 'muted' : null);
+    it.append(el('strong', null, `${(+x).toFixed(1)}×`), document.createTextNode(label));
+    return it;
+  }));
+  box.hidden = !valid.length;
 }
 function renderCpacf(c) {
-  const g = c.groups || {}, t = c.totals || {};
-  const ecdsaTotal = Object.entries(t).filter(([k]) => k.startsWith('KDSA ECDSA Verify')).reduce((a, [, v]) => a + v, 0);
-  countTo('cpacf-verify', g.ecdsa_verify_per_s);
-  countTo('cpacf-sha', g.sha_per_s);
-  countTo('cpacf-total', ecdsaTotal);
-  chip.rate = g.ecdsa_verify_per_s || 0;
+  const rate = num(c?.groups?.ecdsa_verify_per_s);
+  $('#chipRate').textContent = rate == null ? '–' : fmt(rate);
+}
+function buildPins() {
+  let svg = '';
+  [90, 125, 160, 195, 230].forEach((p, i) => {
+    const d = ` style="animation-delay:${i * 0.17}s"`;
+    svg += `<line class="chip-pin"${d} x1="${p}" y1="20" x2="${p}" y2="56"/><line class="chip-pin"${d} x1="${p}" y1="264" x2="${p}" y2="300"/>`;
+    svg += `<line class="chip-pin"${d} x1="20" y1="${p}" x2="56" y2="${p}"/><line class="chip-pin"${d} x1="264" y1="${p}" x2="300" y2="${p}"/>`;
+  });
+  $('#pins').innerHTML = svg;   // static markup only, no data
 }
 
-// Racing bars: both lanes run for one simulated second, then hold, then restart
-const race = { on: 0, off: 0, t0: 0 };
-function raceFrame(now) {
-  if (!race.t0) race.t0 = now;
-  const RUN = 1600, HOLD = 2600;
-  const t = (now - race.t0) % (RUN + HOLD);
-  const p = Math.min(1, t / RUN);
-  const e = 1 - Math.pow(1 - p, 2);
-  const max = Math.max(race.on, race.off, 1);
-  const onW = race.on / max * 100 * e, offW = race.off / max * 100 * e;
-  $('#race-on').style.width = onW + '%';
-  $('#race-off').style.width = offW + '%';
-  $('#race-on-num').textContent = race.on ? `${fmt(race.on * e)}/s` : '–';
-  $('#race-off-num').textContent = race.off ? `${fmt(race.off * e)}/s` : '–';
-  requestAnimationFrame(raceFrame);
-}
+// ---------- Scroll-in animations: funnel bars + count-ups, results count-ups ----------
+function watchScroll() {
+  if (reduce || !('IntersectionObserver' in window)) { report.visible = true; return; }
+  const funnel = $('#funnel');
+  const io = new IntersectionObserver(es => {
+    if (!es[0].isIntersecting) return;
+    io.disconnect();
+    funnel.querySelectorAll('.fbar').forEach((r, i) => { r.style.animationDelay = (i * 0.25) + 's'; r.classList.add('grow'); });
+    funnel.querySelectorAll('[data-count]').forEach(node => {
+      const end = +node.dataset.count, t0 = performance.now(), dur = 1300;
+      const tick = t => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3); node.textContent = fmt(end * e); if (p < 1) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+  }, { threshold: .35 });
+  io.observe(funnel);
 
-// Chip graphic: pins light up in proportion to live CPACF activity
-const chip = { rate: 0, pins: [], acc: 0, last: 0 };
-function buildChip() {
-  const svg = $('.chip-svg'), ns = 'http://www.w3.org/2000/svg';
-  const pins = svg.querySelector('.pins'), grid = svg.querySelector('.chip-grid');
-  for (let i = 0; i < 8; i++) {
-    const p = 58 + i * 17.7;
-    [[p, 40, p, 20], [p, 200, p, 220], [40, p, 20, p], [200, p, 220, p]].forEach(([x1, y1, x2, y2]) => {
-      const l = document.createElementNS(ns, 'line');
-      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
-      l.setAttribute('class', 'pin'); pins.append(l); chip.pins.push(l);
-    });
-  }
-  for (let i = 1; i < 6; i++) {
-    const p = 58 + i * (124 / 6);
-    [[p, 58, p, 182], [58, p, 182, p]].forEach(([x1, y1, x2, y2]) => {
-      const l = document.createElementNS(ns, 'line');
-      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
-      grid.append(l);
-    });
-  }
-  requestAnimationFrame(chipFrame);
-}
-function chipFrame(now) {
-  const dt = chip.last ? (now - chip.last) / 1000 : 0; chip.last = now;
-  chip.acc += Math.min(40, chip.rate / 10) * dt;     // flashes per second scale with live rate
-  while (chip.acc >= 1) {
-    chip.acc -= 1;
-    const pin = chip.pins[Math.floor(Math.random() * chip.pins.length)];
-    pin.classList.add('lit'); setTimeout(() => pin.classList.remove('lit'), 180);
-  }
-  requestAnimationFrame(chipFrame);
+  const rep = $('#report');
+  const io2 = new IntersectionObserver(es => {
+    if (!es[0].isIntersecting) return;
+    io2.disconnect();
+    report.visible = true;
+    rep.classList.add('go');
+    rep.querySelectorAll('[data-count]').forEach(countUp);
+  }, { threshold: .4 });
+  io2.observe(rep);
 }
 
 // =================================================================
-// LATEST 15 SCAMS tab
+// LATEST CATCHES tab
 // =================================================================
-const SCAM_CATEGORIES = new Set(['toll', 'delivery', 'gov']);
 const decidedMs = a => toDate(a.decided_at)?.getTime() || 0;   // ISO UTC; missing sorts last
 // Only https://crt.sh/ links are ever clickable. Scam domains stay plain text.
 const crtshLink = u => (typeof u === 'string' && u.startsWith('https://crt.sh/')) ? u : null;
@@ -695,85 +587,98 @@ function fmtAge(days) {
   return `${d < 10 ? d.toFixed(1) : Math.round(d)} days`;
 }
 
+const roll = { openId: null, seen: null };
 async function loadCatches() {
   const btn = $('#refresh-btn');
-  btn.disabled = true; btn.textContent = 'Loading…';
+  btn.disabled = true; btn.textContent = 'Checking…';
   const raw = await getJSON('catches');
   renderCatches(raw ? latestScams(raw) : [], !!raw);
-  btn.disabled = false; btn.textContent = '↻ Refresh';
+  btn.disabled = false; btn.textContent = 'Check for new ones';
 }
 function renderCatches(list, reached) {
   const fresh = list.filter(a => !isKnown(a)), known = list.filter(isKnown);
-  [['new', fresh], ['known', known]].forEach(([key, rows]) => {
-    $(`#group-${key}`).hidden = rows.length === 0;
-    $(`#count-${key}`).textContent = rows.length;
-    $(`#list-${key}`).replaceChildren(...rows.map(scamRow));
-  });
+  if (roll.openId === null && fresh[0]) roll.openId = fresh[0].id;   // newest opens by default
+  const prev = roll.seen;
+  if (reached) roll.seen = new Set(list.map(a => a.id));
+  $('#list').replaceChildren(...fresh.map(a => receiptRow(a, !!prev && !prev.has(a.id))));
+  $('#known').replaceChildren(...known.map(knownRow));
+  $('#group-new').hidden = !fresh.length;
+  $('#group-known').hidden = !known.length;
   const empty = $('#catch-empty');
   empty.hidden = list.length > 0;
   empty.textContent = reached
     ? 'No toll, delivery or government scams yet. New ones show up here as soon as they\'re found.'
-    : 'Can\'t reach the server right now. Try Refresh in a moment.';
+    : 'Can\'t reach the server right now. Try again in a moment.';
 }
-function scamRow(a) {
-  const lv = level(a.score);
-  const li = el('li', 'catch open');
-  const main = el('div', 'catch-main static');
-  const pill = el('div', `score-pill ${lv}`, Math.round(a.score * 100));
-  pill.title = `Score ${a.score.toFixed(3)}`;
-  main.append(pill);
+function receiptRow(a, isFresh) {
+  const open = a.id === roll.openId;
+  const item = el('div', `item${open ? ' open' : ''}${isFresh ? ' fresh' : ''}`);
+  item.dataset.id = a.id;
+  const b = el('button');
+  b.type = 'button';
+  b.setAttribute('aria-expanded', String(open));
+  const when = el('span', 'when', shortAgo(a.decided || a.time));
+  if (a.decidedRaw) when.title = a.decidedRaw;
+  const s = Math.round(a.score * 100);
+  const score = el('span', `score-n num${s >= 90 ? ' hi' : s >= 75 ? ' mid' : ''}`, s);
+  score.title = `Score ${a.score.toFixed(3)}`;
+  b.append(when, el('span', 'domain', a.domain),               // plain text, never a link
+           el('span', `stamp ${a.category}`, (CAT[a.category] || CAT.other).label.toUpperCase()), score);
 
-  const info = el('div');
-  info.append(el('div', 'catch-domain', a.domain));   // plain text, never a link
-  const meta = el('div', 'catch-meta');
-  meta.append(el('span', 'cat-chip', (CAT[a.category] || CAT.other).label));
-  if (isKnown(a)) meta.append(el('span', 'stage-chip known', 'Known · already on a scam list'));
-  if (a.brand) meta.append(el('span', null, `Brand: ${a.brand}`));
-  if (a.moreNames > 0) {
-    meta.append(el('span', 'more-names', `+${a.moreNames} more name${a.moreNames === 1 ? '' : 's'} on this site`));
-  }
-  if (a.decided) {
-    const t = el('span', null, `Flagged ${timeAgo(a.decided)}`);
-    t.title = a.decidedRaw;
-    meta.append(t);
-  }
-  info.append(meta);
-  main.append(info);
-
-  const detail = el('div', 'catch-detail');
+  const inner = el('div');
   if (a.reasons.length) {
-    const rs = el('div', 'reasons');
-    a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
-    detail.append(rs);
+    const ul = el('ul');
+    a.reasons.forEach(r => ul.append(el('li', null, r)));
+    inner.append(ul);
   }
-  const facts = el('div', 'detail-links');
+  const facts = el('p', 'why-facts');
+  if (a.brand) facts.append(el('span', null, `Brand: ${a.brand}`));
   const age = fmtAge(a.ageDays);
-  facts.append(el('span', null, `Domain age: ${age ?? 'unknown'}`),
-               el('span', null, `Registrar: ${a.registrar || 'unknown'}`));
+  if (age) facts.append(el('span', null, `Domain age: ${age}`));
+  if (a.registrar) facts.append(el('span', null, `Registrar: ${a.registrar}`));
+  if (a.moreNames > 0) facts.append(el('span', null, `+${a.moreNames} more name${a.moreNames === 1 ? '' : 's'} on this site`));
   if (a.crtsh) {
-    const crt = el('a', null, '↗ Public certificate record (crt.sh)');
+    const crt = el('a', null, 'Public certificate record (crt.sh)');
     crt.href = a.crtsh; crt.target = '_blank'; crt.rel = 'noopener noreferrer';
     facts.append(crt);
   }
-  detail.append(facts);
-  li.append(main, detail);
-  return li;
+  if (facts.childElementCount) inner.append(facts);
+  const why = el('div', 'why');
+  why.append(inner);
+  item.append(b, why);
+  return item;
 }
+function knownRow(a) {
+  const row = el('div', 'known-row');
+  const d = el('span', 'domain', a.domain);                     // plain text, never a link
+  d.style.fontWeight = '500';
+  row.append(el('span', null, shortAgo(a.decided || a.time)), d, el('span', null, (CAT[a.category] || CAT.other).label));
+  return row;
+}
+$('#list').addEventListener('click', e => {
+  const item = e.target.closest('.item');
+  if (!item || e.target.closest('a')) return;
+  roll.openId = roll.openId === item.dataset.id ? '' : item.dataset.id;
+  $('#list').querySelectorAll('.item').forEach(it => {
+    const on = it.dataset.id === roll.openId;
+    it.classList.toggle('open', on);
+    it.querySelector('button').setAttribute('aria-expanded', String(on));
+  });
+});
 
 // =================================================================
-// Tabs
+// Tabs (routes: #dashboard, #catches, #extension)
 // =================================================================
+const TABS = ['dashboard', 'catches', 'extension'];
 let pollTimer = null;
 function showTab(name) {
-  if (!['dashboard', 'catches', 'extension'].includes(name)) name = 'dashboard';
-  document.querySelectorAll('.tab-btn').forEach(b => {
-    const on = b.dataset.tab === name;
-    b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
-  });
-  document.querySelectorAll('.tab-panel').forEach(p => p.hidden = p.id !== `panel-${name}`);
+  if (!TABS.includes(name)) name = 'dashboard';
+  document.querySelectorAll('[data-page]').forEach(p => p.hidden = p.dataset.page !== name);
+  document.querySelectorAll('[data-tab]').forEach(t => t.dataset.tab === name
+    ? t.setAttribute('aria-current', 'page') : t.removeAttribute('aria-current'));
   clearInterval(pollTimer);
   if (name === 'dashboard') {
-    startFirehose();
+    startStream();
     loadDashboard();
     pollTimer = setInterval(loadDashboard, CONFIG.POLL_MS);
   } else if (name === 'catches') {
@@ -781,16 +686,14 @@ function showTab(name) {
   }
   window.scrollTo({ top: 0 });
 }
-document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 $('#refresh-btn').addEventListener('click', loadCatches);
 if (CONFIG.EXTENSION_URL && CONFIG.EXTENSION_URL !== '#') {
   $('#install-btn').href = CONFIG.EXTENSION_URL;
   $('#install-btn').hidden = false;
 }
-$('#howto-btn').addEventListener('click', () => $('#install-steps').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 
-buildChip();
-requestAnimationFrame(raceFrame);
+buildPins();
+watchScroll();
 showTab(location.hash.slice(1) || 'dashboard');
-if (location.hash.slice(1) !== 'catches') loadCatches();   // fill "Latest 15 scams" on every page load
+if (location.hash.slice(1) !== 'catches') loadCatches();   // fill "Latest catches" on every page load
