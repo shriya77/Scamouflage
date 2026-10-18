@@ -1,6 +1,6 @@
 /*
- * warning.js: fills in the red warning page and handles its three buttons
- * (Go back, Report this site, Continue anyway).
+ * warning.js: fills in the red warning page and handles its two buttons
+ * (Go back, Continue anyway).
  *
  * background.js opens this page as:
  *   warning.html?url=...&host=...&matched=...&score=...&reasons=[...]&observed=...&source=...&back=...
@@ -108,52 +108,7 @@
     }
   });
 
-  // ---- Step 3: "Report this site" ------------------------------------------
-  // Opens report.html in its own small window. That page asks background.js
-  // for a drafted abuse e-mail to the site's registrar; the user sends it from
-  // their own mail app. Opening it is the only action that tells the server
-  // which site the user was on, and the window says so.
-  const reportBtn = document.getElementById('report');
-  const hint = document.getElementById('report-hint');
-  let reportWindowId = null;
-
-  reportBtn.addEventListener('click', async () => {
-    const target = host || matched;
-    if (!target) return;
-    const url = chrome.runtime.getURL('report.html?host=' + encodeURIComponent(target));
-    // Already open: bring it forward instead of opening a second one.
-    if (reportWindowId !== null) {
-      try {
-        await chrome.windows.update(reportWindowId, { focused: true, drawAttention: true });
-        return;
-      } catch (_) {
-        reportWindowId = null; // it was closed
-      }
-    }
-    try {
-      const w = await chrome.windows.create({
-        url, type: 'popup', focused: true,
-        width: Math.min(760, Math.max(520, Math.round(screen.availWidth * 0.5))),
-        height: Math.min(820, Math.max(560, Math.round(screen.availHeight * 0.85))),
-      });
-      reportWindowId = w && typeof w.id === 'number' ? w.id : null;
-      hint.textContent = 'The report opened in a separate window.';
-      hint.hidden = false;
-    } catch (_) {
-      // Pop-up windows blocked or unavailable (rare): fall back to a tab.
-      try {
-        await chrome.tabs.create({ url, active: true });
-      } catch (_e) {
-        hint.textContent = 'Could not open the report window.';
-        hint.hidden = false;
-      }
-    }
-  });
-  if (chrome.windows && chrome.windows.onRemoved) {
-    chrome.windows.onRemoved.addListener((id) => { if (id === reportWindowId) reportWindowId = null; });
-  }
-
-  // ---- Step 4: "Continue anyway" -------------------------------------------
+  // ---- Step 3: "Continue anyway" -------------------------------------------
   // Allow this hostname for the rest of the browser session, then load the
   // original URL. Only http(s) URLs are accepted.
   document.getElementById('continue').addEventListener('click', async () => {
