@@ -252,6 +252,40 @@
     <p class="empty" id="catch-empty" hidden>Loading…</p>
   </section>
 
+  <!-- Abuse report preview (opened from a "Report to registrar" button) -->
+  <div class="modal-backdrop" id="report-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rm-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="rm-title">Report to registrar</h2>
+          <p class="card-sub" id="rm-sub">Looking up the registrar's abuse contact…</p>
+        </div>
+        <button class="modal-close" id="rm-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="rm-note" id="rm-note" hidden></p>
+        <dl class="rm-fields">
+          <dt>To</dt><dd id="rm-to" class="mono">–</dd>
+          <dt>Registrar</dt><dd id="rm-registrar">–</dd>
+          <dt>Subject</dt><dd id="rm-subject">–</dd>
+        </dl>
+        <pre class="rm-body" id="rm-body" tabindex="0"></pre>
+        <label class="rm-noteline">
+          <span>Add a note (optional)</span>
+          <textarea id="rm-usernote" rows="2" maxlength="4000" placeholder="e.g. victims reached us via SMS on 17 Oct"></textarea>
+        </label>
+      </div>
+      <div class="modal-foot">
+        <span class="fine" id="rm-status"></span>
+        <div class="rm-actions">
+          <button class="btn btn-ghost" id="rm-copy" type="button">Copy text</button>
+          <a class="btn btn-ghost" id="rm-mailto" href="#" hidden>Open in mail app</a>
+          <button class="btn btn-primary" id="rm-send" type="button" hidden>Send from server</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ EXTENSION ============ -->
   <section class="tab-panel" id="panel-extension" hidden>
     <div class="ext-hero">
