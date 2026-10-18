@@ -14,6 +14,8 @@ const CONFIG = {
     stats:   '/api/stats',       // live pipeline counters + recent domain names for the stream
     alerts:  '/api/alerts',      // { items: [...] }
     catches: '/api/alerts?limit=200', // "Latest catches" tab: filtered and deduped on the client
+    catchesHistory: '/api/alerts?limit=1000', // fetched once: the newest 200 alerts are mostly known-list
+                                              // "other" phishing, often too few toll/delivery/gov to fill 15
     summary: '/api/alerts/summary', // { known_total, new_total, total }
     results: '/api/results',     // model evaluation: precision, recall, false_alarms_per_10k, baselines
     leadtime: '/api/leadtime',   // median_days, share_before_any_feed, n
@@ -615,16 +617,24 @@ function fmtAge(days) {
   return `${d < 10 ? d.toFixed(1) : Math.round(d)} days`;
 }
 
-const roll = { openId: null, seen: null };
+const roll = { openId: null, seen: null, rows: new Map() };   // rows: toll/delivery/gov alerts seen so far, by id
 async function loadCatches(auto = false) {
   const btn = $('#refresh-btn');
   if (!auto) { btn.disabled = true; btn.textContent = 'Checking…'; }
-  const raw = await getJSON('catches');
+  // First load reaches further back; after that the light 200-alert call only adds what's new
+  const raw = await getJSON(roll.rows.size ? 'catches' : 'catchesHistory');
   if (location.hash.slice(1) === 'catches') setStatus(raw ? 'live' : 'offline', raw ? 'Live' : 'Offline');
+  for (const a of raw?.items || []) {
+    if (SCAM_CATEGORIES.has(String(a.category ?? '').toLowerCase())) roll.rows.set(String(a.id ?? a.cert_id), a);
+  }
+  if (roll.rows.size > 1000) {                       // keep memory bounded: drop the oldest
+    const keep = [...roll.rows].sort(([, x], [, y]) => decidedMs(y) - decidedMs(x)).slice(0, 1000);
+    roll.rows = new Map(keep);
+  }
   // An automatic refresh waits while someone is selecting a domain, so the selection isn't wiped
   const sel = getSelection();
   const selecting = auto && sel && !sel.isCollapsed && $('.roll').contains(sel.anchorNode);
-  if (!selecting) renderCatches(raw ? latestScams(raw) : [], !!raw);
+  if (!selecting) renderCatches(latestScams({ items: [...roll.rows.values()] }), !!raw || roll.rows.size > 0);
   if (!auto) { btn.disabled = false; btn.textContent = 'Check for new ones'; }
 }
 function renderCatches(list, reached) {
