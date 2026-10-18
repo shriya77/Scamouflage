@@ -14,6 +14,9 @@ const CONFIG = {
     stats:   '/api/stats',       // live pipeline counters (+ recent domain names for the firehose, when added)
     alerts:  '/api/alerts',      // { items: [...] }
     catches: '/api/alerts?limit=200', // "Latest 15 scams" tab: filtered and deduped on the client
+    abuseConfig:  '/api/abuse/config',  // { mode: off|preview|send, can_send }
+    abuseReport:  '/api/abuse/report',  // POST { alert_id, send, handoff, note }
+    abuseReports: '/api/abuse/reports?limit=300', // dispatch log -> "Reported 2 h ago" badges
     summary: '/api/alerts/summary', // { known_total, new_total, total }
     results: '/api/results',     // model evaluation: precision, recall, pr_auc, false_alarms_per_10k, baselines
     leadtime: '/api/leadtime',   // median_days, share_before_any_feed, n
@@ -695,6 +698,8 @@ function latestScams(raw) {
   }
   return [...sites].slice(0, CONFIG.CATCHES_LIMIT).map(([site, { a, names }]) => ({
     ...normalizeAlert(a),                           // stage null -> undefined, so isKnown() treats it as new
+    alertId: a.id,                                  // numeric row id, what /api/abuse/report wants
+    verified: a.verified,                           // 1 when Stage 3 (RDAP) answered
     category: String(a.category).toLowerCase(),
     brand: a.brand, ageDays: a.age_days, registrar: a.registrar,
     decided: toDate(a.decided_at), decidedRaw: a.decided_at,
@@ -713,7 +718,7 @@ function fmtAge(days) {
 async function loadCatches() {
   const btn = $('#refresh-btn');
   btn.disabled = true; btn.textContent = 'Loading…';
-  const raw = await getJSON('catches');
+  const [raw] = await Promise.all([getJSON('catches'), Takedown.refresh()]);
   renderCatches(raw ? latestScams(raw) : [], !!raw);
   btn.disabled = false; btn.textContent = '↻ Refresh';
 }
@@ -771,16 +776,290 @@ function scamRow(a) {
     facts.append(crt);
   }
   detail.append(facts);
+  const act = Takedown.rowActions(a);
+  if (act) detail.append(act);
   li.append(main, detail);
   return li;
 }
+
+// =================================================================
+// One-click takedown: abuse report to the registrar
+// The server builds the e-mail from the signed alert + the registrar's RDAP abuse contact.
+// Nothing is sent unless the person presses a button; the site itself is never visited.
+// =================================================================
+const Takedown = (() => {
+  let config = null;                 // /api/abuse/config; null = the server doesn't have the dispatcher yet
+  let logItems = [];                 // /api/abuse/reports items
+  const dispatched = new Map();      // registered domain -> newest sent/mailto record
+  let current = null;                // { alertId, site, data } for the open modal
+  const apiLabel = () => CONFIG.API_BASE || location.origin;
+  const SERVER_BEHIND = `The API at ${apiLabel()} doesn't have the abuse dispatcher yet. Deploy the abuse-dispatcher branch there and restart the API (RUNBOOK: "Abuse reports to the registrar").`;
+  const OPERATOR_ONLY = 'Operator only. Reports can be drafted and sent only from the VM itself: open the dashboard through the SSH tunnel (http://localhost:8000) rather than the public address.';
+  const operator = () => !!(config && config.operator);
+
+  // Same bar as the server: blocklist threshold, and Stage 3 verified or already on a public list.
+  function ineligible(a) {
+    if (!config) return null;
+    if (a.score < (config.min_score ?? 0.85)) return `Below the reporting threshold (${Math.round(a.score * 100)} < ${Math.round((config.min_score ?? 0.85) * 100)})`;
+    if (config.require_verified && !(Number(a.verified) === 1 || isKnown(a))) return 'Registration not verified by RDAP; not reported automatically';
+    return null;
+  }
+
+  async function refresh() {
+    config = await getJSON('abuseConfig');
+    dispatched.clear(); logItems = [];
+    if (config && config.mode !== 'off' && config.operator) {
+      const log = await getJSON('abuseReports');
+      logItems = log?.items || [];
+      for (const r of logItems) {
+        if ((r.status === 'sent' || r.status === 'mailto') && !dispatched.has(r.domain)) dispatched.set(r.domain, r);
+      }
+    }
+    renderTab();
+  }
+
+  // ---- Takedowns tab
+  function renderTab() {
+    const dot = $('#td-dot'), mode = $('#td-mode'), sub = $('#td-mode-sub');
+    if (!dot) return;
+    dot.className = 'dot';
+    if (!config) {
+      dot.classList.add('off'); mode.textContent = 'Not available on this server yet';
+      sub.textContent = SERVER_BEHIND;
+    } else if (config.mode === 'off') {
+      dot.classList.add('off'); mode.textContent = 'Switched off';
+      sub.textContent = 'SCAM_ABUSE_MODE=off on the API. Set it to preview or send and restart.';
+    } else if (!config.operator) {
+      dot.classList.add('warn'); mode.textContent = 'Operator only from this address';
+      sub.textContent = OPERATOR_ONLY;
+    } else if (config.mode === 'preview' || !config.can_send) {
+      dot.classList.add('warn'); mode.textContent = 'Preview mode';
+      sub.textContent = config.mode === 'send'
+        ? 'Server sending is enabled but no SMTP sender is configured (SCAM_SMTP_HOST / SCAM_ABUSE_FROM). Reports open in your mail app.'
+        : 'Reports are built on the server and open in your mail app or go to the clipboard. Nothing is sent automatically.';
+    } else {
+      dot.classList.add('on'); mode.textContent = config.test_to ? 'Send mode (test: every mail is rerouted to you)' : 'Send mode';
+      sub.textContent = `Sends from ${config.from || 'the configured mailbox'}, at most ${config.max_per_hour} per hour, one per domain per ${config.dedupe_hours} h.`;
+    }
+    const rows = logItems.filter(r => r.status !== 'preview');
+    $('#td-count').textContent = rows.length;
+    $('#td-rows').replaceChildren(...rows.map(r => {
+      const tr = el('tr', r.status === 'failed' ? 'failed' : null);
+      const when = toDate(r.created_at);
+      const t = el('td', null, when ? timeAgo(when) : r.created_at); t.title = r.created_at;
+      const how = { sent: 'Sent from server', mailto: 'Mail app', failed: `Failed: ${r.error || ''}` }[r.status] || r.status;
+      tr.append(t, el('td', 'mono', r.domain), el('td', null, r.registrar || 'unknown'),
+                el('td', 'mono', (r.to || []).join(', ') || '–'), el('td', null, how));
+      return tr;
+    }));
+    const empty = $('#td-empty');
+    $('#td-table').hidden = rows.length === 0;
+    empty.hidden = rows.length > 0;
+    empty.textContent = !config ? 'The report log lives on the server; it will appear once the dispatcher is deployed.'
+      : !config.operator ? 'The report log is visible to operators only (through the SSH tunnel).'
+      : 'No reports sent yet. Open Latest scams and press "Report to registrar" on a row.';
+  }
+
+  function rowActions(a) {
+    if (a.alertId == null) return null;
+    const wrap = el('div', 'takedown');
+    if (!config || config.mode === 'off' || !config.operator) {
+      const b = el('button', 'btn btn-ghost btn-sm', config && !config.operator ? 'Report to registrar · operator only' : 'Report to registrar');
+      b.type = 'button';
+      b.title = !config ? SERVER_BEHIND : config.mode === 'off' ? 'The dispatcher is switched off on the server (SCAM_ABUSE_MODE=off).' : OPERATOR_ONLY;
+      b.addEventListener('click', () => openUnavailable(a, b.title));
+      wrap.append(b);
+      return wrap;
+    }
+    const why = ineligible(a);
+    if (why) {
+      const s = el('span', 'not-eligible', why);
+      s.title = 'Only high-confidence, RDAP-verified alerts can be turned into a takedown request, so a false positive is never reported in our name.';
+      wrap.append(s);
+      return wrap;
+    }
+    const prev = dispatched.get(a.site);
+    if (prev) {
+      const when = toDate(prev.created_at);
+      const badge = el('span', 'reported-badge', `Reported to ${prev.registrar || 'registrar'} ${when ? timeAgo(when) : ''}`);
+      badge.title = `${prev.status === 'sent' ? 'Sent from server' : 'Handed to a mail client'} · ${prev.to.join(', ')}`;
+      wrap.append(badge);
+    }
+    const b = el('button', 'btn btn-ghost btn-sm', prev ? 'Report again' : 'Report to registrar');
+    b.type = 'button';
+    b.addEventListener('click', () => open(a));
+    wrap.append(b);
+    return wrap;
+  }
+
+  async function post(payload) {
+    try {
+      const r = await fetch(CONFIG.API_BASE + CONFIG.ENDPOINTS.abuseReport, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(() => ({}));
+      return { ok: r.ok, status: r.status, data };
+    } catch { return { ok: false, status: 0, data: {} }; }
+  }
+
+  const m = {
+    root: $('#report-modal'), sub: $('#rm-sub'), note: $('#rm-note'), to: $('#rm-to'), reg: $('#rm-registrar'),
+    subject: $('#rm-subject'), body: $('#rm-body'), usernote: $('#rm-usernote'), status: $('#rm-status'),
+    copy: $('#rm-copy'), mailto: $('#rm-mailto'), send: $('#rm-send'), close: $('#rm-close'),
+  };
+
+  function setNote(text, kind) {
+    m.note.hidden = !text; m.note.textContent = text || '';
+    m.note.className = 'rm-note' + (kind ? ` ${kind}` : '');
+  }
+
+  function resetModal(subtitle) {
+    m.root.hidden = false; document.body.classList.add('modal-open');
+    m.sub.textContent = subtitle;
+    setNote('');
+    m.to.textContent = m.reg.textContent = m.subject.textContent = '–';
+    m.body.textContent = ''; m.usernote.value = ''; m.status.textContent = '';
+    m.mailto.hidden = true; m.send.hidden = true; m.copy.disabled = true;
+  }
+
+  function openUnavailable(a, why) {
+    current = { alertId: a.alertId, site: a.site, data: null };
+    resetModal(`${a.domain} · registered domain ${a.site}`);
+    m.reg.textContent = a.registrar || 'unknown';
+    m.to.textContent = 'looked up over RDAP once the server has the dispatcher';
+    setNote(why, 'warn');
+    m.body.textContent = [
+      'What this button will send (built on the server from the signed alert):',
+      '',
+      `  Registered domain:   ${a.site}`,
+      `  Hostname on cert:    ${a.domain}`,
+      `  Registrar:           ${a.registrar || 'unknown'}`,
+      `  Domain age:          ${fmtAge(a.ageDays) ?? 'unknown'}`,
+      `  Score:               ${a.score.toFixed(2)}`,
+      ...a.reasons.map(r => `  - ${r}`),
+      '',
+      '  + certificate SHA-256, issuer, CT log, first-seen, crt.sh and RDAP links,',
+      '    the signed alert JSON and our public key, and a request for clientHold.',
+    ].join('\n');
+  }
+
+  async function open(a) {
+    current = { alertId: a.alertId, site: a.site, data: null };
+    resetModal(`${a.domain} · looking up the registrar's abuse contact via RDAP…`);
+    const res = await post({ alert_id: a.alertId });
+    if (!current || current.alertId !== a.alertId) return;   // closed meanwhile
+    if (!res.ok || !res.data.report) {
+      m.sub.textContent = a.domain;
+      setNote(res.data.error || 'Could not build the report. Is the server reachable?', 'warn');
+      return;
+    }
+    current.data = res.data;
+    render(res.data);
+  }
+
+  function render(d) {
+    const c = d.contact || {}, r = d.report;
+    m.sub.textContent = `${d.hostname} · registered domain ${d.domain}`;
+    m.reg.textContent = c.registrar ? `${c.registrar}${c.registrar_iana_id ? ` (IANA ${c.registrar_iana_id})` : ''}` : 'unknown';
+    m.subject.textContent = r.subject;
+    m.body.textContent = r.body;
+    m.copy.disabled = false;
+    if (r.to.length) {
+      m.to.textContent = r.to.join(', ') + (c.phone ? `  ·  ${c.phone}` : '');
+      m.mailto.href = r.mailto; m.mailto.hidden = false;
+      m.send.hidden = !d.can_send;
+      m.send.disabled = false; m.send.textContent = config.test_to ? 'Send test from server' : 'Send from server';
+      const why = { timeout: 'RDAP timed out', rate_limited: 'the registry rate-limited us' }[c.error];
+      setNote(c.cached ? '' : (why ? `Contact may be incomplete: ${why}.` : ''), 'warn');
+    } else {
+      m.to.textContent = 'no abuse contact published';
+      const why = {
+        not_found: 'RDAP has no record for this domain (already deleted or suspended, or a ccTLD without RDAP).',
+        no_abuse_contact: 'The RDAP record names a registrar but no abuse mailbox. Look it up on the registrar\'s website and paste the text.',
+        timeout: 'The RDAP lookup timed out. Try again in a moment.',
+        rate_limited: 'The registry rate-limited our RDAP lookups. Try again in a minute.',
+        no_registered_domain: 'This name is on shared hosting; report it to the hosting provider instead.',
+      }[c.error] || 'No abuse contact could be found automatically.';
+      setNote(why, 'warn');
+    }
+    if (d.previous) {
+      const when = toDate(d.previous.created_at);
+      m.status.textContent = `Already reported ${when ? timeAgo(when) : ''} (${d.previous.status}).`;
+    } else if (config.mode === 'preview') {
+      m.status.textContent = 'Preview mode: nothing leaves this server. Use your mail app or copy the text.';
+    } else if (!d.can_send && r.to.length) {
+      m.status.textContent = 'Server sending is not configured; use your mail app.';
+    }
+  }
+
+  function close() {
+    current = null; m.root.hidden = true; document.body.classList.remove('modal-open');
+  }
+
+  m.close.addEventListener('click', close);
+  m.root.addEventListener('click', e => { if (e.target === m.root) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !m.root.hidden) close(); });
+
+  m.copy.addEventListener('click', async () => {
+    if (!current?.data) return;
+    const r = current.data.report;
+    const text = `To: ${r.to.join(', ')}\nSubject: ${r.subject}\n\n${bodyWithNote(r.body)}`;
+    try { await navigator.clipboard.writeText(text); m.status.textContent = 'Copied.'; }
+    catch { m.status.textContent = 'Copy failed; select the text instead.'; }
+  });
+
+  function bodyWithNote(body) {
+    const n = m.usernote.value.trim();
+    return n ? body.replace('\nVERIFYING THIS REPORT', `\nADDITIONAL NOTES FROM THE REPORTER\n  ${n.replace(/\n/g, '\n  ')}\n\nVERIFYING THIS REPORT`) : body;
+  }
+
+  m.mailto.addEventListener('click', async e => {
+    if (!current?.data) { e.preventDefault(); return; }
+    const r = current.data.report;
+    // rebuild the mailto with the note, then tell the server a hand-off happened (logged as "mailto")
+    const body = bodyWithNote(r.body);
+    m.mailto.href = `mailto:${r.to.join(',')}?${r.cc?.length ? `cc=${encodeURIComponent(r.cc.join(','))}&` : ''}subject=${encodeURIComponent(r.subject)}&body=${encodeURIComponent(body)}`;
+    const snap = current;
+    post({ alert_id: snap.alertId, handoff: true, note: m.usernote.value }).then(res => {
+      if (res.ok) { dispatched.set(snap.site, { domain: snap.site, status: 'mailto', created_at: new Date().toISOString(), registrar: snap.data.contact?.registrar, to: r.to }); loadCatches(); }
+    });
+    m.status.textContent = 'Opened in your mail app. Review it there, then send.';
+  });
+
+  m.send.addEventListener('click', async () => {
+    if (!current?.data) return;
+    const snap = current;
+    m.send.disabled = true; m.send.textContent = 'Sending…'; m.status.textContent = '';
+    const res = await post({ alert_id: snap.alertId, send: true, note: m.usernote.value, force: !!snap.data.previous });
+    if (current !== snap) return;
+    if (res.ok && res.data.status === 'sent') {
+      m.send.textContent = 'Sent';
+      const to = (res.data.sent_to || []).join(', ');
+      m.status.textContent = res.data.rerouted ? `Test copy sent to ${to} (not to the registrar).` : `Sent to ${to}.`;
+      setNote('');
+      dispatched.set(snap.site, { domain: snap.site, status: 'sent', created_at: new Date().toISOString(), registrar: snap.data.contact?.registrar, to: res.data.sent_to || [] });
+      loadCatches();
+    } else {
+      m.send.disabled = false; m.send.textContent = 'Send from server';
+      setNote(res.data.error || 'Sending failed.', 'warn');
+    }
+  });
+
+  $('#td-refresh')?.addEventListener('click', async () => {
+    const b = $('#td-refresh'); b.disabled = true; b.textContent = 'Loading…';
+    await refresh();
+    b.disabled = false; b.textContent = '↻ Refresh';
+  });
+
+  return { refresh, rowActions };
+})();
 
 // =================================================================
 // Tabs
 // =================================================================
 let pollTimer = null;
 function showTab(name) {
-  if (!['dashboard', 'catches', 'extension'].includes(name)) name = 'dashboard';
+  if (!['dashboard', 'catches', 'takedowns', 'extension'].includes(name)) name = 'dashboard';
   document.querySelectorAll('.tab-btn').forEach(b => {
     const on = b.dataset.tab === name;
     b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
@@ -793,6 +1072,8 @@ function showTab(name) {
     pollTimer = setInterval(loadDashboard, CONFIG.POLL_MS);
   } else if (name === 'catches') {
     loadCatches();
+  } else if (name === 'takedowns') {
+    Takedown.refresh();
   }
   window.scrollTo({ top: 0 });
 }

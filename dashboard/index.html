@@ -24,6 +24,7 @@
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button class="tab-btn" data-tab="dashboard" role="tab">Dashboard</button>
       <button class="tab-btn" data-tab="catches" role="tab">Latest scams</button>
+      <button class="tab-btn" data-tab="takedowns" role="tab">Takedowns</button>
       <button class="tab-btn" data-tab="extension" role="tab">Extension</button>
     </nav>
     <div class="topbar-right">
@@ -251,6 +252,89 @@
     </section>
     <p class="empty" id="catch-empty" hidden>Loading…</p>
   </section>
+
+  <!-- ============ TAKEDOWNS ============ -->
+  <section class="tab-panel" id="panel-takedowns" hidden>
+    <div class="section-head">
+      <div>
+        <h2>Takedowns</h2>
+        <p>Detection is step one. Every flagged site has a registrar, and every registrar has an abuse desk that must act on phishing reports. Scamouflage looks up that mailbox over RDAP, writes the report from the evidence it already has, and lets you send it in one click.</p>
+      </div>
+      <button id="td-refresh" class="btn btn-ghost" type="button">↻ Refresh</button>
+    </div>
+
+    <div class="td-status card" id="td-status">
+      <div class="td-status-row">
+        <span class="dot" id="td-dot"></span>
+        <strong id="td-mode">Checking the server…</strong>
+      </div>
+      <p class="card-sub" id="td-mode-sub"></p>
+    </div>
+
+    <div class="grid-2 td-how">
+      <div class="card">
+        <div class="card-head"><h2>How a report is built</h2></div>
+        <ol class="td-steps">
+          <li><strong>Find the abuse desk.</strong> The registrar's abuse mailbox comes from the domain's RDAP record (ICANN requires gTLD registrars to publish it). Only rdap.org is contacted, never the scam site.</li>
+          <li><strong>Assemble the evidence.</strong> Registered domain, registrar and IANA id, registration date, certificate SHA-256, issuer, CT log, first-seen time, crt.sh and RDAP links, the model's reasons and score.</li>
+          <li><strong>Attach proof.</strong> The Ed25519-signed alert goes along as JSON with a link to our public key, so the registrar can check nothing was edited.</li>
+          <li><strong>You decide.</strong> Preview the text, add a note, then copy it, open it in your mail app, or send it from the server. Nothing is sent without a click, and only operators on the VM can click: the public address can read everything but trigger nothing.</li>
+          <li><strong>High bar.</strong> Only alerts at or above the extension's blocklist threshold whose registration RDAP confirmed (or that are already on a public scam list) get a button. A false positive is never reported in our name.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Where to find the button</h2></div>
+        <p class="td-copy">Open <a href="#catches">Latest scams</a>. Every row ends with <span class="btn btn-ghost btn-sm td-sample">Report to registrar</span>. After a report goes out the row shows when and to whom it was sent, and the same domain is not reported twice in a day.</p>
+        <p class="td-copy">What a registrar can do: put the domain on <span class="mono">clientHold</span> or <span class="mono">serverHold</span>, which stops it resolving within minutes to hours. That is faster than waiting for browser blocklists to catch up.</p>
+      </div>
+    </div>
+
+    <section class="catch-group">
+      <h3>Reports sent <span class="group-count" id="td-count">0</span></h3>
+      <p class="card-sub">Every hand-off to a mail client and every server send, newest first.</p>
+      <div class="td-table-wrap">
+        <table class="td-table" id="td-table">
+          <thead><tr><th>When</th><th>Domain</th><th>Registrar</th><th>Sent to</th><th>How</th></tr></thead>
+          <tbody id="td-rows"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="td-empty" hidden></p>
+    </section>
+  </section>
+
+  <!-- Abuse report preview (opened from a "Report to registrar" button) -->
+  <div class="modal-backdrop" id="report-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rm-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="rm-title">Report to registrar</h2>
+          <p class="card-sub" id="rm-sub">Looking up the registrar's abuse contact…</p>
+        </div>
+        <button class="modal-close" id="rm-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="rm-note" id="rm-note" hidden></p>
+        <dl class="rm-fields">
+          <dt>To</dt><dd id="rm-to" class="mono">–</dd>
+          <dt>Registrar</dt><dd id="rm-registrar">–</dd>
+          <dt>Subject</dt><dd id="rm-subject">–</dd>
+        </dl>
+        <pre class="rm-body" id="rm-body" tabindex="0"></pre>
+        <label class="rm-noteline">
+          <span>Add a note (optional)</span>
+          <textarea id="rm-usernote" rows="2" maxlength="4000" placeholder="e.g. victims reached us via SMS on 17 Oct"></textarea>
+        </label>
+      </div>
+      <div class="modal-foot">
+        <span class="fine" id="rm-status"></span>
+        <div class="rm-actions">
+          <button class="btn btn-ghost" id="rm-copy" type="button">Copy text</button>
+          <a class="btn btn-ghost" id="rm-mailto" href="#" hidden>Open in mail app</a>
+          <button class="btn btn-primary" id="rm-send" type="button" hidden>Send from server</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ============ EXTENSION ============ -->
   <section class="tab-panel" id="panel-extension" hidden>

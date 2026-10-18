@@ -428,6 +428,12 @@ def make_app():
         print("blocklist route: on")
     except ImportError as e:
         print(f"blocklist route: off ({e})")
+    try:  # one-click abuse reports to the registrar (SCAM_ABUSE_MODE=off|preview|send)
+        from backend.abuse_report import MODE as ABUSE_MODE, setup_abuse_routes
+        setup_abuse_routes(app)
+        print(f"abuse dispatcher: {ABUSE_MODE}")
+    except ImportError as e:
+        print(f"abuse dispatcher: off ({e})")
     return app
 
 

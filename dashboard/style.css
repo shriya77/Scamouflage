@@ -389,6 +389,78 @@ main { max-width: 1160px; margin: 0 auto; padding: 28px 24px 56px; }
 .btn-ghost { background: var(--surface); color: var(--forest); border-color: var(--line); }
 .btn-ghost:hover { border-color: var(--forest-2); }
 .btn:disabled { opacity: 0.6; cursor: default; }
+.btn-sm { font-size: 13.5px; padding: 7px 12px; }
+
+/* ---------- Takedown: report to registrar ---------- */
+.takedown { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
+.reported-badge {
+  font-size: 13px; font-weight: 500; color: var(--forest);
+  background: var(--mist); border-radius: var(--r-sm); padding: 4px 10px;
+}
+.reported-badge::before { content: "✓ "; }
+.not-eligible { font-size: 13px; color: var(--faint); }
+.td-status { padding: 18px 22px; margin-bottom: 20px; }
+.td-status-row { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.td-status .dot.on { background: var(--ok); } .td-status .dot.warn { background: var(--warn); } .td-status .dot.off { background: var(--risk); }
+.td-status .card-sub { margin-top: 6px; }
+.td-how { margin: 0 0 28px; }
+.td-steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; font-size: 14.5px; color: var(--muted); }
+.td-steps strong { color: var(--ink); }
+.td-copy { font-size: 14.5px; color: var(--muted); }
+.td-copy + .td-copy { margin-top: 12px; }
+.td-sample { pointer-events: none; vertical-align: middle; margin: 0 2px; }
+.td-table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: auto; }
+.td-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.td-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12.5px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.td-table td { padding: 12px 16px; border-bottom: 1px solid var(--line-soft); vertical-align: top; overflow-wrap: anywhere; }
+.td-table tr:last-child td { border-bottom: 0; }
+.td-table tr.failed td:last-child { color: var(--risk); }
+.td-table td.mono { font-size: 13px; }
+body.modal-open { overflow: hidden; }
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(16, 37, 26, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.modal {
+  background: var(--surface); color: var(--ink);
+  width: min(760px, 100%); max-height: calc(100vh - 48px);
+  border-radius: var(--r-lg); border: 1px solid var(--line);
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+}
+.modal-head { display: flex; align-items: flex-start; gap: 16px; padding: 20px 22px 14px; border-bottom: 1px solid var(--line-soft); }
+.modal-head h2 { font-size: 19px; }
+.modal-head .card-sub { overflow-wrap: anywhere; }
+.modal-close {
+  margin-left: auto; border: 0; background: none; cursor: pointer;
+  font: 400 26px/1 var(--sans); color: var(--muted); padding: 0 4px;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-body { padding: 16px 22px; overflow: auto; display: grid; gap: 14px; }
+.rm-note { font-size: 14px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--mist); color: var(--ink); }
+.rm-note.warn { background: var(--warn-soft); color: #5E4310; }
+.rm-fields { margin: 0; display: grid; grid-template-columns: 90px 1fr; row-gap: 6px; column-gap: 12px; font-size: 14px; }
+.rm-fields dt { color: var(--muted); }
+.rm-fields dd { margin: 0; overflow-wrap: anywhere; }
+.rm-body {
+  margin: 0; font: 13px/1.5 var(--mono); color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 14px 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto;
+}
+.rm-noteline { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.rm-noteline textarea {
+  font: 14px/1.45 var(--sans); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; resize: vertical;
+  background: var(--surface);
+}
+.rm-noteline textarea:focus-visible { outline: 2px solid var(--forest-2); outline-offset: 1px; }
+.modal-foot {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 22px 18px; border-top: 1px solid var(--line-soft);
+}
+.modal-foot .fine { flex: 1 1 200px; }
+.rm-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
 /* ---------- Extension ---------- */
 .ext-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 48px; align-items: center; margin: 12px 0 28px; }
