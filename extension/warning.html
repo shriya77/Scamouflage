@@ -45,8 +45,38 @@
 
     <div class="actions">
       <button id="go-back" class="primary" type="button" autofocus>Go back</button>
+      <button id="report" class="outline" type="button">Report this site</button>
       <button id="continue" class="secondary" type="button">Continue anyway</button>
     </div>
+
+    <!-- "Report this site": a drafted abuse e-mail to the site's registrar,
+         sent by the user from their own mail program. -->
+    <section id="report-panel" class="report" hidden aria-live="polite">
+      <h2 class="panel-label">Report to the registrar</h2>
+      <p id="report-status" class="report-status">Looking up who registered this site…</p>
+      <div id="report-ready" hidden>
+        <dl class="report-meta">
+          <dt>To</dt><dd id="report-to" class="mono"></dd>
+          <dt>Registrar</dt><dd id="report-registrar"></dd>
+          <dt>Subject</dt><dd id="report-subject"></dd>
+        </dl>
+        <textarea id="report-body" class="report-body" readonly rows="12" aria-label="Report text"></textarea>
+        <div class="report-actions">
+          <a id="report-mailto" class="report-btn" href="#">Open in my mail app</a>
+          <button id="report-copy" class="report-btn" type="button">Copy text</button>
+          <span id="report-note" class="report-note"></span>
+        </div>
+        <p class="report-fine">
+          The e-mail goes from your own address, so the registrar can reply to you.
+          Scamouflage does not send anything itself and keeps no record of who reported what.
+        </p>
+      </div>
+      <p class="report-fine">
+        Pressing the button sent this site's address to the Scamouflage server once,
+        to find the registrar's abuse contact. That is the only time the extension
+        tells the server which site you were on.
+      </p>
+    </section>
 
     <p class="fineprint">
       This list is generated automatically from new HTTPS certificates. A

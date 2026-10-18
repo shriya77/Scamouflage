@@ -91,6 +91,42 @@ ssh -N -L 8000:localhost:8000 user@<vm-ip>
 
 then open <http://localhost:8000/>. The browser extension uses `http://localhost:8000/api/blocklist` through the same tunnel.
 
+## Abuse reports to the registrar ("Report this site" in the extension)
+
+`backend/abuse_report.py`, mounted by the API. The red warning page in the extension has a
+"Report this site" button. It sends that one hostname to `POST /api/abuse/draft`; the server finds
+the alert, looks up the registrar's abuse mailbox over RDAP (rdap.org only; the scam site is never
+contacted), drafts a plain-text report from the signed alert, and returns it with a `mailto:` link.
+The person sends it from their own mail program. The server sends nothing on that route and logs
+nothing about the caller. Public, rate-limited per address (6/min, 40/h), and it refuses names that
+have no alert with score ≥ 0.85 (the blocklist threshold) and a Stage 3 verified registration (or a
+place on a public scam list), so it can't be used to look up arbitrary domains.
+
+Operators also get `POST /api/abuse/report` (preview or server-side send) and the dispatch log
+`GET /api/abuse/reports`, but only from loopback on the VM (what the SSH tunnel looks like to the
+API) or with `X-Scamouflage-Token: $SCAM_ABUSE_TOKEN`. Everything is controlled by environment
+variables read by the API process; nothing is stored in the repo.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SCAM_ABUSE_MODE` | `preview` | `off` (all routes 503), `preview` (drafts only), `send` (operators may send from the server) |
+| `SCAM_ABUSE_DRAFTS_PER_MINUTE`, `SCAM_ABUSE_DRAFTS_PER_HOUR` | `6`, `40` | per-address limits on the extension's draft route |
+| `SCAM_ABUSE_MIN_SCORE`, `SCAM_ABUSE_REQUIRE_VERIFIED` | blocklist threshold (`0.85`), `1` | eligibility bar; `REQUIRE_VERIFIED=0` also allows unverified high scores |
+| `SCAM_ABUSE_TOKEN` | – | shared secret for operators who are not on loopback (`openssl rand -hex 24`) |
+| `SCAM_SMTP_HOST`, `SCAM_SMTP_PORT` | –, `587` | SMTP relay for operator sends. `SCAM_SMTP_STARTTLS=0` only for local testing |
+| `SCAM_SMTP_USER`, `SCAM_SMTP_PASS` | – | relay credentials (export in the tmux shell, never commit) |
+| `SCAM_ABUSE_FROM`, `SCAM_ABUSE_REPLY_TO`, `SCAM_ABUSE_CC` | – | `From:` for operator sends (a mailbox you receive), optional Reply-To and CCs |
+| `SCAM_ABUSE_ORG` | `Scamouflage (IBM Z Datathon 2026 team)` | who signs operator reports |
+| `SCAM_ABUSE_TEST_TO` | – | **reroute every operator send here** (subject prefixed `[TEST, would go to ...]`) |
+| `SCAM_PUBLIC_BASE` | – | e.g. `http://148.100.79.76:8000`; adds "signed alert JSON" and "public key" links to the report |
+| `SCAM_ABUSE_MAX_PER_HOUR`, `SCAM_ABUSE_DEDUPE_HOURS` | `20`, `24` | operator send cap, and how long the same registered domain is refused a second send |
+| `SCAM_ABUSE_RDAP_INTERVAL` | `2.0` | seconds between RDAP requests from the API process. Not shared with Stage 3 (consumer process); rdap.org counts both against the VM's IP |
+| `SCAM_ABUSE_DB` | `DATA_DIR/takedowns.db` | contact cache + operator dispatch log (the alerts DB stays read-only) |
+
+Check: `curl -s localhost:8000/api/abuse/config`;
+`curl -s -X POST -H 'Content-Type: application/json' -d '{"hostname":"<an alerted hostname>"}' localhost:8000/api/abuse/draft`;
+from outside, `curl -s -o /dev/null -w '%{http_code}\n' http://148.100.79.76:8000/api/abuse/reports` must be 403.
+
 ## Lead time ("caught before the blocklists")
 
 Already running hourly in `cc-leadtime`. To start it again:

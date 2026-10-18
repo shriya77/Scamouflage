@@ -1,5 +1,6 @@
 /*
- * warning.js: fills in the red warning page and handles its two buttons.
+ * warning.js: fills in the red warning page and handles its three buttons
+ * (Go back, Report this site, Continue anyway).
  *
  * background.js opens this page as:
  *   warning.html?url=...&host=...&matched=...&score=...&reasons=[...]&observed=...&source=...&back=...
@@ -107,7 +108,97 @@
     }
   });
 
-  // ---- Step 3: "Continue anyway" -------------------------------------------
+  // ---- Step 3: "Report this site" ------------------------------------------
+  // Asks background.js for a drafted abuse e-mail to the site's registrar.
+  // This is the only action that tells the server which site the user was on,
+  // and the panel says so. The user sends the mail from their own mail app.
+  const reportBtn = document.getElementById('report');
+  const panel = document.getElementById('report-panel');
+  const statusEl = document.getElementById('report-status');
+  const ready = document.getElementById('report-ready');
+  const ERRORS = {
+    demo: null, // server text is used
+    offline: 'Could not reach the Scamouflage server. Check your connection and try again.',
+    not_flagged: 'This site is not in the live alert database, so there is no record to report yet. ' +
+      'Your warning came from a list entry that has since been retired, or from a broader match.',
+    not_eligible: 'This alert is below the bar Scamouflage sets for a takedown request (a very high score and a ' +
+      'verified registration), so it is not reported automatically. You can still warn friends and report the ' +
+      'text message to your carrier (forward it to 7726).',
+    rate_limited: 'Too many reports from this connection in a short time. Please try again in a minute.',
+    off: 'Reporting is switched off on the Scamouflage server right now.',
+  };
+  let draft = null;
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle('err', !!isError);
+    statusEl.hidden = !text;
+  }
+
+  reportBtn.addEventListener('click', async () => {
+    if (draft) { panel.hidden = false; panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    reportBtn.disabled = true;
+    panel.hidden = false;
+    ready.hidden = true;
+    setStatus('Looking up who registered this site…', false);
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'draftReport', hostname: host || matched });
+    } catch (_) {
+      res = { error: 'The extension could not process the request.', code: 'internal' };
+    }
+    reportBtn.disabled = false;
+    if (!res || res.error) {
+      const code = res && res.code;
+      setStatus((code && ERRORS[code]) || (res && res.error) || 'Something went wrong.', true);
+      return;
+    }
+    draft = res;
+    document.getElementById('report-registrar').textContent =
+      res.registrar || 'unknown (no registrar name in the public record)';
+    document.getElementById('report-subject').textContent = res.subject;
+    document.getElementById('report-body').value = res.body;
+    const mailto = document.getElementById('report-mailto');
+    const note = document.getElementById('report-note');
+    if (res.to.length && res.mailto) {
+      document.getElementById('report-to').textContent = res.to.join(', ') + (res.phone ? ' · ' + res.phone : '');
+      mailto.href = res.mailto;
+      mailto.hidden = false;
+      note.textContent = '';
+      setStatus('Here is the report. Read it, then send it from your mail app.', false);
+    } else {
+      document.getElementById('report-to').textContent = 'no abuse contact published';
+      mailto.hidden = true;
+      const why = {
+        not_found: 'The public registration record for this domain is already gone (deleted or suspended).',
+        no_abuse_contact: 'The registrar does not publish an abuse mailbox in the public record. ' +
+          'Search for "' + (res.registrar || 'the registrar') + ' report abuse" and paste the text into their form.',
+        no_registered_domain: 'This site lives on shared hosting; report it to the hosting provider instead.',
+        timeout: 'The registry did not answer in time. Try again in a moment.',
+        rate_limited: 'The registry is rate-limiting lookups right now. Try again in a minute.',
+      }[res.contactError] || 'No abuse contact could be found automatically; copy the text and send it yourself.';
+      note.textContent = '';
+      setStatus(why, true);
+    }
+    ready.hidden = false;
+  });
+
+  document.getElementById('report-copy').addEventListener('click', async () => {
+    if (!draft) return;
+    const text = 'To: ' + draft.to.join(', ') + '\nSubject: ' + draft.subject + '\n\n' + draft.body;
+    const note = document.getElementById('report-note');
+    try {
+      await navigator.clipboard.writeText(text);
+      note.textContent = 'Copied.';
+    } catch (_) {
+      const ta = document.getElementById('report-body');
+      ta.focus(); ta.select();
+      note.textContent = 'Select the text and copy it.';
+    }
+  });
+
+  // ---- Step 4: "Continue anyway" -------------------------------------------
   // Allow this hostname for the rest of the browser session, then load the
   // original URL. Only http(s) URLs are accepted.
   document.getElementById('continue').addEventListener('click', async () => {
