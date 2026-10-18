@@ -17,17 +17,17 @@
       <h2>Connection</h2>
 
       <label for="backend-url">Backend URL</label>
-      <input id="backend-url" type="url" required placeholder="http://localhost:8000">
+      <input id="backend-url" type="url" required placeholder="http://148.100.79.76:8000">
       <p class="hint">
         Where the signed list is downloaded from (<code>{backend}/api/blocklist</code>), every
-        30 minutes. Default <code>http://localhost:8000</code>, reached through
-        <code>ssh -N -L 8000:localhost:8000 user@vm</code>. Chrome asks for permission if you
-        pick a different address.
+        30 minutes. Default <code>http://148.100.79.76:8000</code> (our LinuxONE server). Through an
+        SSH tunnel (<code>ssh -N -L 8000:localhost:8000 user@vm</code>) use
+        <code>http://localhost:8000</code>. Chrome asks for permission if you pick another address.
       </p>
 
       <label for="dashboard-url">Scamouflage dashboard URL</label>
-      <input id="dashboard-url" type="url" required placeholder="http://localhost:8000/">
-      <p class="hint">Opened by the "Open dashboard" link in the popup. Default <code>http://localhost:8000/</code>.</p>
+      <input id="dashboard-url" type="url" required placeholder="http://148.100.79.76:8000/">
+      <p class="hint">Opened by the "Open dashboard" link in the popup. Default <code>http://148.100.79.76:8000/</code>.</p>
 
       <div class="toggle-row">
         <div>

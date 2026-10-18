@@ -14,13 +14,13 @@
  * so it attaches to `self` (which is `window` in pages).
  */
 self.SCAMOUFLAGE_CONFIG = Object.freeze({
-  // Where the Scamouflage backend is. We reach the VM through an SSH tunnel:
-  //   ssh -L 8000:localhost:8000 user@vm
-  // Users can change this on the options page.
-  DEFAULT_BACKEND_URL: 'http://localhost:8000',
+  // Where the Scamouflage backend is: the public address of our LinuxONE VM.
+  // (Without public access, use the SSH tunnel instead: ssh -N -L 8000:localhost:8000 user@vm,
+  // then set http://localhost:8000 on the options page.)
+  DEFAULT_BACKEND_URL: 'http://148.100.79.76:8000',
 
   // The Scamouflage dashboard opened from the popup. Editable on the options page.
-  DEFAULT_DASHBOARD_URL: 'http://localhost:8000/',
+  DEFAULT_DASHBOARD_URL: 'http://148.100.79.76:8000/',
 
   // How often to download a fresh list (chrome.alarms, minutes).
   SYNC_PERIOD_MINUTES: 30,
