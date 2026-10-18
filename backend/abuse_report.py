@@ -16,25 +16,48 @@ What it does
        (DATA_DIR/takedowns.db) so the dashboard can show "Reported 2 h ago" and so the same
        domain isn't reported twice in a day.
 
+Who may call it
+    Port 8000 is open to the internet and these routes *act*, so everything except
+    GET /api/abuse/config is operator-only: the caller must come from loopback (operators reach
+    the API through the SSH tunnel, so their peer address on the VM is 127.0.0.1) or send
+    `X-Scamouflage-Token: <SCAM_ABUSE_TOKEN>` (compared with hmac.compare_digest). Anyone else
+    gets 403. The dashboard still shows the button, labelled "operator only".
+
+What may be reported
+    - Only alerts that exist in the alerts DB. Contact lookups take a hostname and refuse it
+      unless an alert carries it, so a stranger can't use us to query RDAP for arbitrary names.
+    - Only high-confidence alerts: score >= the blocklist threshold (0.85, the same THRESHOLD as
+      backend/blocklist_route.py; SCAM_ABUSE_MIN_SCORE overrides) and either Stage 3 verified
+      the registration (verified=1) or the name was already on a public scam list (stage 0).
+      SCAM_ABUSE_REQUIRE_VERIFIED=0 drops the second condition. A takedown request for a false
+      positive, sent in our name, is the worst outcome, so the bar is high on purpose.
+
 Safety rails
     - Never contacts the suspected scam site. Evidence is what the pipeline already has:
       the CT log entry, crt.sh, RDAP, the model's reasons and the Ed25519-signed alert.
     - SCAM_ABUSE_TEST_TO=you@example.org reroutes *every* outgoing mail to that address, so the
       send path can be exercised end to end without mailing a real registrar.
     - Per-domain dedupe (SCAM_ABUSE_DEDUPE_HOURS, 24) and a global cap
-      (SCAM_ABUSE_MAX_PER_HOUR, 20) stop a stuck button or a script from flooding a registrar.
+      (SCAM_ABUSE_MAX_PER_HOUR, 20), checked and recorded under one lock, stop a stuck button
+      or a script from flooding a registrar.
+    - RDAP: this process has its own limiter (1 request / 2 s). It is NOT shared with Stage 3,
+      which runs in the consumer process on the same IP, so lookups here still count against
+      rdap.org's per-IP budget. That is why they are operator-only, limited to alerted domains,
+      and cached for 24 h.
     - Credentials come from the environment only (SCAM_SMTP_*). Nothing is written to the repo.
 
 Routes (mounted by setup_abuse_routes(app)):
-    GET  /api/abuse/config                  mode, whether a sender is configured (no secrets)
-    GET  /api/abuse/contact?domain=x.top    registrar abuse contact via RDAP (cached 24 h)
-    POST /api/abuse/report                  {"alert_id": 123, "send": false, "reporter": {...}, "note": ""}
-    GET  /api/abuse/reports?limit=100       dispatch log (also ?domain=)
+    GET  /api/abuse/config                  public: mode, limits, whether *this caller* is an operator
+    GET  /api/abuse/contact?domain=x.top    operator: registrar abuse contact via RDAP (cached 24 h)
+    POST /api/abuse/report                  operator: {"alert_id": 123, "send": false, "reporter": {...}, "note": ""}
+    GET  /api/abuse/reports?limit=100       operator: dispatch log (also ?domain=)
 """
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -87,7 +110,20 @@ MAX_PER_HOUR = int(os.environ.get("SCAM_ABUSE_MAX_PER_HOUR", "20"))
 DEDUPE_HOURS = float(os.environ.get("SCAM_ABUSE_DEDUPE_HOURS", "24"))
 CONTACT_TTL_S = 24 * 3600
 RDAP_TIMEOUT = float(os.environ.get("SCAM_ABUSE_RDAP_TIMEOUT", "8"))
+RDAP_INTERVAL = float(os.environ.get("SCAM_ABUSE_RDAP_INTERVAL", "2.0"))  # this process only
 USER_AGENT = "Scamouflage/1.0 abuse-dispatcher (+https://github.com/shriya77/Scamouflage)"
+
+# Operator access: loopback peer, or the shared token header.
+TOKEN = os.environ.get("SCAM_ABUSE_TOKEN", "")
+TOKEN_HEADER = "X-Scamouflage-Token"
+
+# Which alerts may be reported. Same bar as the extension's blocklist.
+try:
+    from backend.blocklist_route import THRESHOLD as _BLOCKLIST_THRESHOLD
+except Exception:  # pragma: no cover
+    _BLOCKLIST_THRESHOLD = 0.85
+MIN_SCORE = float(os.environ.get("SCAM_ABUSE_MIN_SCORE") or _BLOCKLIST_THRESHOLD)
+REQUIRE_VERIFIED = os.environ.get("SCAM_ABUSE_REQUIRE_VERIFIED", "1") != "0"
 
 _EMAIL_RE = re.compile(r"^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$")
 
@@ -107,21 +143,23 @@ except Exception:  # pragma: no cover - tests run without the model package deps
             return "", False
         return f"{e.domain}.{e.suffix}", bool(getattr(e, "is_private", False))
 
-# Share Stage 3's 1 req/s limiter towards rdap.org when it's loaded in this process.
-try:
-    from model.stage3 import _RATE_LIMITER as _rdap_limiter
-except Exception:  # pragma: no cover
-    class _Limiter:
-        def __init__(self, s=1.0):
-            self.s, self._next, self._lock = s, 0.0, threading.Lock()
 
-        def wait(self):
-            with self._lock:
-                d = self._next - time.monotonic()
-                if d > 0:
-                    time.sleep(d)
-                self._next = time.monotonic() + self.s
-    _rdap_limiter = _Limiter()
+class _Limiter:
+    """At least `s` seconds between rdap.org requests from this process. Stage 3 has its own
+    limiter in the consumer process; rdap.org counts both against the same IP."""
+
+    def __init__(self, s=RDAP_INTERVAL):
+        self.s, self._next, self._lock = s, 0.0, threading.Lock()
+
+    def wait(self):
+        with self._lock:
+            d = self._next - time.monotonic()
+            if d > 0:
+                time.sleep(d)
+            self._next = time.monotonic() + self.s
+
+
+_rdap_limiter = _Limiter()
 
 
 def now_iso(t=None):
@@ -637,40 +675,100 @@ def load_alert(alert_id, db_path: str = ALERTS_DB) -> dict | None:
     return a
 
 
+def alerted_host(host: str, db_path: str = ALERTS_DB) -> bool:
+    """True if some alert was raised for exactly this hostname."""
+    if not os.path.exists(db_path):
+        return False
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2)
+    try:
+        return con.execute("SELECT 1 FROM alerts WHERE domain = ? LIMIT 1", (host,)).fetchone() is not None
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        con.close()
+
+
+def eligibility(alert: dict) -> str | None:
+    """None if the alert may be reported, else a short reason why not."""
+    score = float(alert.get("score") or 0)
+    if score < MIN_SCORE:
+        return f"score {score:.2f} is below the reporting threshold {MIN_SCORE:.2f}"
+    def _int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    if REQUIRE_VERIFIED and not (_int(alert.get("verified")) == 1 or _int(alert.get("stage")) == 0):
+        return "the registration was not verified by Stage 3 (RDAP) and the name is not on a public scam list"
+    return None
+
+
+def is_loopback(remote: str | None) -> bool:
+    try:
+        return ipaddress.ip_address((remote or "").split("%")[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def is_operator(request, peer=None) -> bool:
+    """Loopback peer (SSH tunnel) or the shared token header."""
+    remote = peer(request) if peer else request.remote
+    if is_loopback(remote):
+        return True
+    given = request.headers.get(TOKEN_HEADER, "")
+    return bool(TOKEN) and bool(given) and hmac.compare_digest(given, TOKEN)
+
+
 def setup_abuse_routes(app: web.Application, store: TakedownStore | None = None,
-                       alerts_db: str = ALERTS_DB, lookup=None, sender=None) -> None:
-    """Mount the four routes. `lookup`/`sender` are injectable for tests."""
+                       alerts_db: str = ALERTS_DB, lookup=None, sender=None, peer=None) -> None:
+    """Mount the four routes. `lookup`/`sender`/`peer` are injectable for tests
+    (`peer(request) -> remote address`, default request.remote)."""
     store = store or TakedownStore()
     lookup = lookup or (lambda host: lookup_abuse_contact(host, store))
     sender = sender or send_report
     app["abuse_store"] = store
+    locks: dict = {}   # created on first use, inside the running loop (Python 3.9 binds Lock to a loop)
+
+    def send_lock():
+        """Dedupe check + cap check + send + log happen as one unit."""
+        if "send" not in locks:
+            locks["send"] = asyncio.Lock()
+        return locks["send"]
 
     async def in_thread(fn, *a):
         return await asyncio.get_running_loop().run_in_executor(None, fn, *a)
 
-    def guard():
+    def guard(request):
         if MODE == "off":
             raise web.HTTPServiceUnavailable(
                 text=json.dumps({"error": "abuse dispatcher is off (SCAM_ABUSE_MODE=off)"}),
                 content_type="application/json")
+        if not is_operator(request, peer):
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": "operator only: call from the VM (SSH tunnel) or send the "
+                                          f"{TOKEN_HEADER} header"}),
+                content_type="application/json")
 
     async def config(request):
         return web.json_response({
-            "mode": MODE, "can_send": MODE == "send" and smtp_configured(),
+            "mode": MODE, "operator": is_operator(request, peer),
+            "can_send": MODE == "send" and smtp_configured(),
             "sender_configured": smtp_configured(), "test_to": bool(TEST_TO),
             "max_per_hour": MAX_PER_HOUR, "dedupe_hours": DEDUPE_HOURS,
-            "from": FROM_ADDR if MODE == "send" else None, "org": ORG_NAME})
+            "min_score": MIN_SCORE, "require_verified": REQUIRE_VERIFIED, "org": ORG_NAME})
 
     async def contact(request):
-        guard()
-        host = (request.query.get("domain") or "").strip().lower()
-        if not host or len(host) > 253 or not re.fullmatch(r"[a-z0-9.\-*]+", host):
+        guard(request)
+        host = (request.query.get("domain") or "").strip().lower().rstrip(".")
+        if not host or len(host) > 253 or not re.fullmatch(r"[a-z0-9.\-]+", host):
             return _json_error(400, "domain required")
+        if not alerted_host(host, alerts_db):
+            return _json_error(404, "no alert for that hostname; lookups are limited to alerted names")
         res = await in_thread(lookup, host)
         return web.json_response(res)
 
     async def report(request):
-        guard()
+        guard(request)
         try:
             body = await request.json()
         except Exception:
@@ -681,6 +779,10 @@ def setup_abuse_routes(app: web.Application, store: TakedownStore | None = None,
         alert = load_alert(alert_id, alerts_db)
         if alert is None:
             return _json_error(404, "alert not found")
+        why_not = eligibility(alert)
+        if why_not:
+            return _json_error(409, f"not eligible for a takedown request: {why_not}",
+                               alert_id=alert.get("id"), hostname=alert["domain"], eligible=False)
         want_send = bool(body.get("send"))
         force = bool(body.get("force"))
         reporter = body.get("reporter") if isinstance(body.get("reporter"), dict) else {}
@@ -715,30 +817,34 @@ def setup_abuse_routes(app: web.Application, store: TakedownStore | None = None,
             return _json_error(503, "no SMTP sender configured (SCAM_SMTP_HOST / SCAM_ABUSE_FROM)", **out)
         if not rep["to"]:
             return _json_error(409, "no abuse contact for this registrar; nothing to send", **out)
-        if previous and not force:
-            age_h = (time.time() - dt.datetime.strptime(previous["created_at"], "%Y-%m-%dT%H:%M:%SZ")
-                     .replace(tzinfo=dt.timezone.utc).timestamp()) / 3600
-            if age_h < DEDUPE_HOURS:
-                return _json_error(409, f"{site} was already reported {age_h:.1f} h ago", **out)
-        if store.sent_last_hour() >= MAX_PER_HOUR:
-            return _json_error(429, f"send limit reached ({MAX_PER_HOUR}/hour)", **out)
-        try:
-            sent = await in_thread(sender, rep)
-        except Exception as e:  # SMTP refused, DNS, auth...
-            log.warning("abuse report for %s failed: %s", site, e)
+        async with send_lock():   # serialize: nobody else may slip between the checks and the log
+            previous = store.last_dispatch(site)
+            out["previous"] = previous
+            if previous and not force:
+                age_h = (time.time() - dt.datetime.strptime(previous["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+                         .replace(tzinfo=dt.timezone.utc).timestamp()) / 3600
+                if age_h < DEDUPE_HOURS:
+                    return _json_error(409, f"{site} was already reported {age_h:.1f} h ago", **out)
+            if store.sent_last_hour() >= MAX_PER_HOUR:
+                return _json_error(429, f"send limit reached ({MAX_PER_HOUR}/hour)", **out)
+            try:
+                sent = await in_thread(sender, rep)
+            except Exception as e:  # SMTP refused, DNS, auth...
+                log.warning("abuse report for %s failed: %s", site, e)
+                rid = store.log(alert_id=alert.get("id"), domain=site, hostname=alert["domain"],
+                                registrar=contact.get("registrar"), to=rep["to"], subject=rep["subject"],
+                                body=rep["body"], status="failed", error=f"{type(e).__name__}: {e}",
+                                reporter=reporter)
+                return _json_error(502, f"sending failed: {type(e).__name__}: {e}", **dict(out, report_id=rid))
             rid = store.log(alert_id=alert.get("id"), domain=site, hostname=alert["domain"],
-                            registrar=contact.get("registrar"), to=rep["to"], subject=rep["subject"],
-                            body=rep["body"], status="failed", error=f"{type(e).__name__}: {e}",
-                            reporter=reporter)
-            return _json_error(502, f"sending failed: {type(e).__name__}: {e}", **dict(out, report_id=rid))
-        rid = store.log(alert_id=alert.get("id"), domain=site, hostname=alert["domain"],
-                        registrar=contact.get("registrar"), to=sent["to"], subject=rep["subject"],
-                        body=rep["body"], status="sent", message_id=sent["message_id"], reporter=reporter)
+                            registrar=contact.get("registrar"), to=sent["to"], subject=rep["subject"],
+                            body=rep["body"], status="sent", message_id=sent["message_id"], reporter=reporter)
         log.info("abuse report %s sent for %s to %s", rid, site, sent["to"])
         return web.json_response(dict(out, status="sent", report_id=rid, sent_to=sent["to"],
                                       message_id=sent["message_id"], rerouted=bool(TEST_TO)))
 
     async def reports(request):
+        guard(request)   # the log names reporters and recipients: operators only
         try:
             limit = max(1, min(int(request.query.get("limit", 100)), 1000))
         except ValueError:

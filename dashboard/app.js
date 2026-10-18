@@ -699,6 +699,7 @@ function latestScams(raw) {
   return [...sites].slice(0, CONFIG.CATCHES_LIMIT).map(([site, { a, names }]) => ({
     ...normalizeAlert(a),                           // stage null -> undefined, so isKnown() treats it as new
     alertId: a.id,                                  // numeric row id, what /api/abuse/report wants
+    verified: a.verified,                           // 1 when Stage 3 (RDAP) answered
     category: String(a.category).toLowerCase(),
     brand: a.brand, ageDays: a.age_days, registrar: a.registrar,
     decided: toDate(a.decided_at), decidedRaw: a.decided_at,
@@ -787,23 +788,96 @@ function scamRow(a) {
 // Nothing is sent unless the person presses a button; the site itself is never visited.
 // =================================================================
 const Takedown = (() => {
-  let config = null;                 // /api/abuse/config, null = not available
+  let config = null;                 // /api/abuse/config; null = the server doesn't have the dispatcher yet
+  let logItems = [];                 // /api/abuse/reports items
   const dispatched = new Map();      // registered domain -> newest sent/mailto record
   let current = null;                // { alertId, site, data } for the open modal
+  const apiLabel = () => CONFIG.API_BASE || location.origin;
+  const SERVER_BEHIND = `The API at ${apiLabel()} doesn't have the abuse dispatcher yet. Deploy the abuse-dispatcher branch there and restart the API (RUNBOOK: "Abuse reports to the registrar").`;
+  const OPERATOR_ONLY = 'Operator only. Reports can be drafted and sent only from the VM itself: open the dashboard through the SSH tunnel (http://localhost:8000) rather than the public address.';
+  const operator = () => !!(config && config.operator);
+
+  // Same bar as the server: blocklist threshold, and Stage 3 verified or already on a public list.
+  function ineligible(a) {
+    if (!config) return null;
+    if (a.score < (config.min_score ?? 0.85)) return `Below the reporting threshold (${Math.round(a.score * 100)} < ${Math.round((config.min_score ?? 0.85) * 100)})`;
+    if (config.require_verified && !(Number(a.verified) === 1 || isKnown(a))) return 'Registration not verified by RDAP; not reported automatically';
+    return null;
+  }
 
   async function refresh() {
     config = await getJSON('abuseConfig');
-    dispatched.clear();
-    if (!config || config.mode === 'off') return;
-    const log = await getJSON('abuseReports');
-    for (const r of (log?.items || [])) {
-      if ((r.status === 'sent' || r.status === 'mailto') && !dispatched.has(r.domain)) dispatched.set(r.domain, r);
+    dispatched.clear(); logItems = [];
+    if (config && config.mode !== 'off' && config.operator) {
+      const log = await getJSON('abuseReports');
+      logItems = log?.items || [];
+      for (const r of logItems) {
+        if ((r.status === 'sent' || r.status === 'mailto') && !dispatched.has(r.domain)) dispatched.set(r.domain, r);
+      }
     }
+    renderTab();
+  }
+
+  // ---- Takedowns tab
+  function renderTab() {
+    const dot = $('#td-dot'), mode = $('#td-mode'), sub = $('#td-mode-sub');
+    if (!dot) return;
+    dot.className = 'dot';
+    if (!config) {
+      dot.classList.add('off'); mode.textContent = 'Not available on this server yet';
+      sub.textContent = SERVER_BEHIND;
+    } else if (config.mode === 'off') {
+      dot.classList.add('off'); mode.textContent = 'Switched off';
+      sub.textContent = 'SCAM_ABUSE_MODE=off on the API. Set it to preview or send and restart.';
+    } else if (!config.operator) {
+      dot.classList.add('warn'); mode.textContent = 'Operator only from this address';
+      sub.textContent = OPERATOR_ONLY;
+    } else if (config.mode === 'preview' || !config.can_send) {
+      dot.classList.add('warn'); mode.textContent = 'Preview mode';
+      sub.textContent = config.mode === 'send'
+        ? 'Server sending is enabled but no SMTP sender is configured (SCAM_SMTP_HOST / SCAM_ABUSE_FROM). Reports open in your mail app.'
+        : 'Reports are built on the server and open in your mail app or go to the clipboard. Nothing is sent automatically.';
+    } else {
+      dot.classList.add('on'); mode.textContent = config.test_to ? 'Send mode (test: every mail is rerouted to you)' : 'Send mode';
+      sub.textContent = `Sends from ${config.from || 'the configured mailbox'}, at most ${config.max_per_hour} per hour, one per domain per ${config.dedupe_hours} h.`;
+    }
+    const rows = logItems.filter(r => r.status !== 'preview');
+    $('#td-count').textContent = rows.length;
+    $('#td-rows').replaceChildren(...rows.map(r => {
+      const tr = el('tr', r.status === 'failed' ? 'failed' : null);
+      const when = toDate(r.created_at);
+      const t = el('td', null, when ? timeAgo(when) : r.created_at); t.title = r.created_at;
+      const how = { sent: 'Sent from server', mailto: 'Mail app', failed: `Failed: ${r.error || ''}` }[r.status] || r.status;
+      tr.append(t, el('td', 'mono', r.domain), el('td', null, r.registrar || 'unknown'),
+                el('td', 'mono', (r.to || []).join(', ') || '–'), el('td', null, how));
+      return tr;
+    }));
+    const empty = $('#td-empty');
+    $('#td-table').hidden = rows.length === 0;
+    empty.hidden = rows.length > 0;
+    empty.textContent = !config ? 'The report log lives on the server; it will appear once the dispatcher is deployed.'
+      : !config.operator ? 'The report log is visible to operators only (through the SSH tunnel).'
+      : 'No reports sent yet. Open Latest scams and press "Report to registrar" on a row.';
   }
 
   function rowActions(a) {
-    if (!config || config.mode === 'off' || a.alertId == null) return null;
+    if (a.alertId == null) return null;
     const wrap = el('div', 'takedown');
+    if (!config || config.mode === 'off' || !config.operator) {
+      const b = el('button', 'btn btn-ghost btn-sm', config && !config.operator ? 'Report to registrar · operator only' : 'Report to registrar');
+      b.type = 'button';
+      b.title = !config ? SERVER_BEHIND : config.mode === 'off' ? 'The dispatcher is switched off on the server (SCAM_ABUSE_MODE=off).' : OPERATOR_ONLY;
+      b.addEventListener('click', () => openUnavailable(a, b.title));
+      wrap.append(b);
+      return wrap;
+    }
+    const why = ineligible(a);
+    if (why) {
+      const s = el('span', 'not-eligible', why);
+      s.title = 'Only high-confidence, RDAP-verified alerts can be turned into a takedown request, so a false positive is never reported in our name.';
+      wrap.append(s);
+      return wrap;
+    }
     const prev = dispatched.get(a.site);
     if (prev) {
       const when = toDate(prev.created_at);
@@ -839,14 +913,39 @@ const Takedown = (() => {
     m.note.className = 'rm-note' + (kind ? ` ${kind}` : '');
   }
 
-  async function open(a) {
-    current = { alertId: a.alertId, site: a.site, data: null };
+  function resetModal(subtitle) {
     m.root.hidden = false; document.body.classList.add('modal-open');
-    m.sub.textContent = `${a.domain} · looking up the registrar's abuse contact via RDAP…`;
+    m.sub.textContent = subtitle;
     setNote('');
     m.to.textContent = m.reg.textContent = m.subject.textContent = '–';
     m.body.textContent = ''; m.usernote.value = ''; m.status.textContent = '';
     m.mailto.hidden = true; m.send.hidden = true; m.copy.disabled = true;
+  }
+
+  function openUnavailable(a, why) {
+    current = { alertId: a.alertId, site: a.site, data: null };
+    resetModal(`${a.domain} · registered domain ${a.site}`);
+    m.reg.textContent = a.registrar || 'unknown';
+    m.to.textContent = 'looked up over RDAP once the server has the dispatcher';
+    setNote(why, 'warn');
+    m.body.textContent = [
+      'What this button will send (built on the server from the signed alert):',
+      '',
+      `  Registered domain:   ${a.site}`,
+      `  Hostname on cert:    ${a.domain}`,
+      `  Registrar:           ${a.registrar || 'unknown'}`,
+      `  Domain age:          ${fmtAge(a.ageDays) ?? 'unknown'}`,
+      `  Score:               ${a.score.toFixed(2)}`,
+      ...a.reasons.map(r => `  - ${r}`),
+      '',
+      '  + certificate SHA-256, issuer, CT log, first-seen, crt.sh and RDAP links,',
+      '    the signed alert JSON and our public key, and a request for clientHold.',
+    ].join('\n');
+  }
+
+  async function open(a) {
+    current = { alertId: a.alertId, site: a.site, data: null };
+    resetModal(`${a.domain} · looking up the registrar's abuse contact via RDAP…`);
     const res = await post({ alert_id: a.alertId });
     if (!current || current.alertId !== a.alertId) return;   // closed meanwhile
     if (!res.ok || !res.data.report) {
@@ -946,6 +1045,12 @@ const Takedown = (() => {
     }
   });
 
+  $('#td-refresh')?.addEventListener('click', async () => {
+    const b = $('#td-refresh'); b.disabled = true; b.textContent = 'Loading…';
+    await refresh();
+    b.disabled = false; b.textContent = '↻ Refresh';
+  });
+
   return { refresh, rowActions };
 })();
 
@@ -954,7 +1059,7 @@ const Takedown = (() => {
 // =================================================================
 let pollTimer = null;
 function showTab(name) {
-  if (!['dashboard', 'catches', 'extension'].includes(name)) name = 'dashboard';
+  if (!['dashboard', 'catches', 'takedowns', 'extension'].includes(name)) name = 'dashboard';
   document.querySelectorAll('.tab-btn').forEach(b => {
     const on = b.dataset.tab === name;
     b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
@@ -967,6 +1072,8 @@ function showTab(name) {
     pollTimer = setInterval(loadDashboard, CONFIG.POLL_MS);
   } else if (name === 'catches') {
     loadCatches();
+  } else if (name === 'takedowns') {
+    Takedown.refresh();
   }
   window.scrollTo({ top: 0 });
 }

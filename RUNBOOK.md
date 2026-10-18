@@ -99,9 +99,18 @@ plain-text report from the signed alert, and either hands it to the operator's m
 (`mailto:`) or sends it from the server. Everything is controlled by environment variables read
 by the API process; nothing is stored in the repo.
 
+**Who can press it.** Port 8000 is public, so everything except `GET /api/abuse/config` is
+operator-only: the request must arrive from loopback on the VM (that is what the SSH tunnel looks
+like to the API) or carry `X-Scamouflage-Token: $SCAM_ABUSE_TOKEN`. From the public address the
+dashboard shows the button as "operator only" and the server answers 403. Contact lookups accept
+only hostnames that have an alert, and a report is only built for alerts with score ≥ the blocklist
+threshold (0.85) that Stage 3 verified (or that were already on a public scam list).
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `SCAM_ABUSE_MODE` | `preview` | `off` (routes answer 503), `preview` (build only; mailto / copy), `send` (server may send) |
+| `SCAM_ABUSE_TOKEN` | – | optional shared secret for operators who are not on loopback (`openssl rand -hex 24`) |
+| `SCAM_ABUSE_MIN_SCORE`, `SCAM_ABUSE_REQUIRE_VERIFIED` | blocklist threshold (`0.85`), `1` | eligibility bar; set `REQUIRE_VERIFIED=0` to also allow unverified high scores |
 | `SCAM_SMTP_HOST`, `SCAM_SMTP_PORT` | –, `587` | SMTP relay. `SCAM_SMTP_STARTTLS=0` to disable STARTTLS (local testing only) |
 | `SCAM_SMTP_USER`, `SCAM_SMTP_PASS` | – | relay credentials (export them in the tmux shell, never commit) |
 | `SCAM_ABUSE_FROM` | – | `From:` header, e.g. `Scamouflage Abuse Desk <abuse@yourdomain>` (must be a mailbox you receive) |
@@ -112,8 +121,15 @@ by the API process; nothing is stored in the repo.
 | `SCAM_ABUSE_MAX_PER_HOUR`, `SCAM_ABUSE_DEDUPE_HOURS` | `20`, `24` | global send cap, and how long the same registered domain is refused a second send (`force` overrides) |
 | `SCAM_ABUSE_DB` | `DATA_DIR/takedowns.db` | contact cache + dispatch log (the alerts DB stays read-only) |
 
-Check: `curl -s localhost:8000/api/abuse/config`, `curl -s 'localhost:8000/api/abuse/contact?domain=example.com'`,
-`curl -s localhost:8000/api/abuse/reports`. Dry run of the send path end to end:
+RDAP from this process has its own limiter (1 request / 2 s, `SCAM_ABUSE_RDAP_INTERVAL`). It is not
+shared with Stage 3 in the consumer process, and rdap.org counts both against the VM's IP; that is
+another reason lookups are operator-only, limited to alerted names and cached 24 h.
+
+Check (on the VM or through the tunnel): `curl -s localhost:8000/api/abuse/config`,
+`curl -s 'localhost:8000/api/abuse/contact?domain=<an alerted hostname>'`,
+`curl -s localhost:8000/api/abuse/reports`. From outside, the same calls must answer 403:
+`curl -s -o /dev/null -w '%{http_code}\n' http://148.100.79.76:8000/api/abuse/reports`.
+Dry run of the send path end to end:
 
 ```bash
 python3 -u -m smtpd -n -c DebuggingServer 127.0.0.1:1025 &      # prints every mail it receives

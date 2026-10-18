@@ -55,8 +55,15 @@ def make_alerts_db(path):
     con = sqlite3.connect(path)
     cols = ["id INTEGER PRIMARY KEY"] + [f"{k} {'REAL' if isinstance(v, float) else 'TEXT'}" for k, v in ALERT.items()]
     con.execute(f"CREATE TABLE alerts ({', '.join(cols)})")
-    vals = [json.dumps(v) if isinstance(v, list) else v for v in ALERT.values()]
-    con.execute(f"INSERT INTO alerts VALUES (1, {','.join('?' * len(vals))})", vals)
+
+    def insert(aid, **over):
+        row = dict(ALERT, **over)
+        vals = [json.dumps(v) if isinstance(v, list) else v for v in row.values()]
+        con.execute(f"INSERT INTO alerts VALUES ({aid}, {','.join('?' * len(vals))})", vals)
+    insert(1)                                                           # eligible: 0.97, verified
+    insert(2, domain="low.com-xk2.win", score=0.80)                     # below the 0.85 threshold
+    insert(3, domain="unverified.com-xk2.win", score=0.95, verified=0, stage=2)  # RDAP never answered
+    insert(4, domain="listed.com-xk2.win", score=1.0, verified=0, stage=0)       # on a public list
     con.commit()
     con.close()
 
@@ -160,20 +167,25 @@ class FakeSMTP:
 
 
 def run_app(mode, fn, **env):
+    """peer: the remote address every request appears to come from (default loopback = operator)."""
     tmp = tempfile.mkdtemp(prefix="abuse-api-")
-    saved = {k: getattr(ar, k) for k in ("MODE", "SMTP_HOST", "FROM_ADDR", "TEST_TO", "MAX_PER_HOUR", "DEDUPE_HOURS")}
+    saved = {k: getattr(ar, k) for k in ("MODE", "SMTP_HOST", "FROM_ADDR", "TEST_TO", "MAX_PER_HOUR",
+                                         "DEDUPE_HOURS", "TOKEN", "MIN_SCORE", "REQUIRE_VERIFIED")}
     try:
         ar.MODE = mode
         ar.SMTP_HOST, ar.FROM_ADDR = env.get("smtp_host", ""), env.get("from_addr", "")
         ar.TEST_TO = env.get("test_to", "")
         ar.MAX_PER_HOUR = env.get("max_per_hour", 20)
         ar.DEDUPE_HOURS = env.get("dedupe_hours", 24)
+        ar.TOKEN = env.get("token", "")
+        ar.MIN_SCORE, ar.REQUIRE_VERIFIED = 0.85, True
         db = os.path.join(tmp, "scamouflage.db")
         make_alerts_db(db)
         store = ar.TakedownStore(os.path.join(tmp, "takedowns.db"))
         app = web.Application()
+        peer = env.get("peer", "127.0.0.1")
         ar.setup_abuse_routes(
-            app, store=store, alerts_db=db,
+            app, store=store, alerts_db=db, peer=lambda request: peer,
             lookup=lambda host: ar.lookup_abuse_contact(host, store, fetch=env.get("fetch", lambda d: (RDAP_FIXTURE, None))),
             sender=lambda rep: ar.send_report(rep, smtp_factory=FakeSMTP))
 
@@ -191,11 +203,90 @@ def run_app(mode, fn, **env):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_non_local_caller_gets_403_unless_token_matches():
+    async def fn(client, store):
+        cfg = await (await client.get("/api/abuse/config")).json()
+        assert cfg["mode"] == "preview" and cfg["operator"] is False, "config is public but says who we are"
+        assert "from" not in cfg
+        for req in (client.get("/api/abuse/contact?domain=ezpass.com-xk2.win"),
+                    client.post("/api/abuse/report", json={"alert_id": 1}),
+                    client.post("/api/abuse/report", json={"alert_id": 1, "handoff": True}),
+                    client.post("/api/abuse/report", json={"alert_id": 1, "send": True, "force": True}),
+                    client.get("/api/abuse/reports")):
+            r = await req
+            assert r.status == 403, (r.method, r.url)
+            assert "operator only" in (await r.json())["error"]
+        assert store.recent() == [] and FakeSMTP.sent == []
+        # wrong / empty token: still 403
+        r = await client.post("/api/abuse/report", json={"alert_id": 1}, headers={"X-Scamouflage-Token": "nope"})
+        assert r.status == 403
+        r = await client.post("/api/abuse/report", json={"alert_id": 1}, headers={"X-Scamouflage-Token": ""})
+        assert r.status == 403
+        # the right token lets a remote operator in
+        r = await client.post("/api/abuse/report", json={"alert_id": 1}, headers={"X-Scamouflage-Token": "s3cret"})
+        assert r.status == 200 and (await r.json())["status"] == "preview"
+        cfg = await (await client.get("/api/abuse/config", headers={"X-Scamouflage-Token": "s3cret"})).json()
+        assert cfg["operator"] is True
+    FakeSMTP.sent = []
+    run_app("preview", fn, peer="203.0.113.7", token="s3cret")
+
+    async def fn_no_token(client, store):
+        # no SCAM_ABUSE_TOKEN configured: nothing a remote caller sends can match
+        r = await client.post("/api/abuse/report", json={"alert_id": 1}, headers={"X-Scamouflage-Token": ""})
+        assert r.status == 403
+    run_app("preview", fn_no_token, peer="203.0.113.7", token="")
+
+    async def fn_v6(client, store):
+        assert (await client.post("/api/abuse/report", json={"alert_id": 1})).status == 200
+    run_app("preview", fn_v6, peer="::1")
+
+
+def test_contact_lookup_only_for_alerted_hostnames():
+    async def fn(client, store):
+        calls = []
+        r = await client.get("/api/abuse/contact?domain=ezpass.com-xk2.win")
+        assert r.status == 200 and (await r.json())["emails"] == ["abuse@namesilo.com"]
+        for host in ("google.com", "com-xk2.win", "www.ezpass.com-xk2.win", "pay.ezpass.com-xk2.win"):
+            r = await client.get(f"/api/abuse/contact?domain={host}")
+            assert r.status == 404, host   # only the exact alerted hostname; not its parent or siblings
+            assert "no alert" in (await r.json())["error"]
+        assert (await client.get("/api/abuse/contact?domain=")).status == 400
+        assert (await client.get("/api/abuse/contact?domain=*.foo.bar")).status == 400
+        assert store.get_contact("google.com") is None, "nothing cached for refused names"
+    run_app("preview", fn)
+
+
+def test_only_high_confidence_verified_alerts_are_eligible():
+    async def fn(client, store):
+        r = await client.post("/api/abuse/report", json={"alert_id": 2, "send": True, "force": True})
+        d = await r.json()
+        assert r.status == 409 and d["eligible"] is False and "below the reporting threshold 0.85" in d["error"]
+        r = await client.post("/api/abuse/report", json={"alert_id": 3, "handoff": True})
+        d = await r.json()
+        assert r.status == 409 and "not verified by Stage 3" in d["error"]
+        r = await client.post("/api/abuse/report", json={"alert_id": 4})     # stage 0: public list, allowed
+        assert r.status == 200
+        r = await client.post("/api/abuse/report", json={"alert_id": 1})
+        assert r.status == 200
+        assert FakeSMTP.sent == [] and store.recent() == []
+        cfg = await (await client.get("/api/abuse/config")).json()
+        assert cfg["min_score"] == 0.85 and cfg["require_verified"] is True
+    FakeSMTP.sent = []
+    run_app("send", fn, smtp_host="smtp.example", from_addr="a@b.example")
+    assert ar.eligibility(dict(ALERT, score=0.9, verified=0, stage=2)) is not None
+    saved = ar.REQUIRE_VERIFIED
+    try:
+        ar.REQUIRE_VERIFIED = False
+        assert ar.eligibility(dict(ALERT, score=0.9, verified=0, stage=2)) is None
+    finally:
+        ar.REQUIRE_VERIFIED = saved
+
+
 def test_preview_mode_builds_but_never_sends():
     async def fn(client, store):
         r = await client.get("/api/abuse/config")
         assert (await r.json())["mode"] == "preview"
-        r = await client.get("/api/abuse/contact?domain=pay.ezpass.com-xk2.win")
+        r = await client.get("/api/abuse/contact?domain=ezpass.com-xk2.win")
         assert r.status == 200 and (await r.json())["emails"] == ["abuse@namesilo.com"]
 
         r = await client.post("/api/abuse/report", json={"alert_id": 1})
