@@ -1,6 +1,6 @@
 /* Scamouflage dashboard
  * Every number comes live from the LinuxONE API. If the connection drops,
- * pipeline counters fall back to example values with an "Offline sample" badge.
+ * pipeline counters fall back to example values and one banner says so.
  * Accuracy numbers are NEVER faked: until /api/results has them, the card says "Evaluation running…".
  */
 
@@ -25,7 +25,7 @@ const CONFIG = {
   EXTENSION_URL: '#',            // optional: a download link for the extension folder (shows a Download button)
   POLL_MS: 2000,
   CATCHES_LIMIT: 15,
-  FIREHOSE_PX_PER_S: 120,        // stream scroll speed
+  FIREHOSE_PX_PER_S: 45,         // stream scroll speed (slow enough to read, not distracting)
   CATCH_PAUSE_MS: 4500,          // how long the stream freezes on a catch
 };
 // Add ?replay to the URL to run a clearly-labelled demo replay (sample domains + a sample catch).
@@ -46,7 +46,12 @@ async function getJSON(key) {
     return data;
   } catch { return null; }
 }
-function setSim(key, isSim) { document.querySelectorAll(`[data-sim="${key}"]`).forEach(b => b.hidden = !isSim); }
+// Which data sources are showing example values. One banner covers them all.
+const simSources = new Set();
+function setSim(key, isSim) {
+  if (isSim) simSources.add(key); else simSources.delete(key);
+  $('#offline-banner').hidden = simSources.size === 0;
+}
 function setStatus(state, text) {
   const s = $('#status');
   s.classList.remove('live', 'offline');
@@ -60,22 +65,13 @@ function el(tag, cls, text) {
   return e;
 }
 
-// ---------- Count numbers up smoothly ----------
-const shown = {};
+// ---------- Numbers: set directly (they refresh every 2 s, so no count-up animation) ----------
 function countTo(id, target, decimals = 0, suffix = '') {
   const node = document.getElementById(id);
   if (!node) return;
-  if (target == null || isNaN(target)) { node.textContent = '–'; delete shown[id]; return; }
-  const start = shown[id] ?? 0;
-  const t0 = performance.now(), dur = shown[id] == null ? 1200 : 900;
-  const step = now => {
-    const p = Math.min(1, (now - t0) / dur);
-    const v = start + (target - start) * (1 - Math.pow(1 - p, 3));
-    node.textContent = (decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString()) + suffix;
-    if (p < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-  shown[id] = target;
+  node.textContent = (target == null || isNaN(target))
+    ? '–'
+    : (decimals ? (+target).toFixed(decimals) : Math.round(target).toLocaleString()) + suffix;
 }
 
 // ---------- Alerts: tolerant of field names ----------
@@ -314,6 +310,7 @@ function handleAlerts(list) {
   const fresh = list.filter(a => !seenAlerts.has(a.id));
   fresh.forEach(a => seenAlerts.add(a.id));
   fresh.reverse().filter(a => heroRank(a) >= 0).forEach(a => fh.catchQueue.push(a));   // oldest first
+  fresh.slice(0, 3).forEach(() => window.ScamWallpaper?.ping());   // red flash on the live background
 }
 
 // ---------- Rendering helpers ----------
@@ -537,7 +534,7 @@ function renderResults(raw, lead) {
   }
 }
 
-// ---------- IBM chip + race ----------
+// ---------- IBM CPACF: live counters + chip on vs off ----------
 const MACHINES = { '9175': 'IBM z17', '9176': 'IBM z17', '3931': 'IBM z16', '3932': 'IBM z16', '8561': 'IBM z15', '8562': 'IBM z15' };
 let benchRendered = false;
 function renderBench(hw) {
@@ -545,13 +542,16 @@ function renderBench(hw) {
   $('#bench-machine').textContent = m
     ? `Measured on our ${m} server (machine type ${hw.machine_type}), with the chip on vs. switched off`
     : 'Measured on our server, with the chip on vs. switched off';
-  $('#chip-name').textContent = m ? m.toUpperCase() : 'IBM Z';
   if (benchRendered && hw === renderBench.last) return;
   renderBench.last = hw; benchRendered = true;
 
   const res = hw.results || {};
   const v = res['verify (real CT certs)'];
-  race.on = v?.on || 0; race.off = v?.off || 0;
+  const on = v?.on || 0, off = v?.off || 0, max = Math.max(on, off, 1);
+  $('#race-on').style.width = (on / max * 100) + '%';
+  $('#race-off').style.width = (off / max * 100) + '%';
+  $('#race-on-num').textContent = on ? `${fmt(on)}/s` : '–';
+  $('#race-off-num').textContent = off ? `${fmt(off)}/s` : '–';
   $('#race-x').textContent = v?.speedup ? `${(+v.speedup).toFixed(1)}×` : '–';
 
   const items = [];
@@ -576,58 +576,6 @@ function renderCpacf(c) {
   countTo('cpacf-verify', g.ecdsa_verify_per_s);
   countTo('cpacf-sha', g.sha_per_s);
   countTo('cpacf-total', ecdsaTotal);
-  chip.rate = g.ecdsa_verify_per_s || 0;
-}
-
-// Racing bars: both lanes run for one simulated second, then hold, then restart
-const race = { on: 0, off: 0, t0: 0 };
-function raceFrame(now) {
-  if (!race.t0) race.t0 = now;
-  const RUN = 1600, HOLD = 2600;
-  const t = (now - race.t0) % (RUN + HOLD);
-  const p = Math.min(1, t / RUN);
-  const e = 1 - Math.pow(1 - p, 2);
-  const max = Math.max(race.on, race.off, 1);
-  const onW = race.on / max * 100 * e, offW = race.off / max * 100 * e;
-  $('#race-on').style.width = onW + '%';
-  $('#race-off').style.width = offW + '%';
-  $('#race-on-num').textContent = race.on ? `${fmt(race.on * e)}/s` : '–';
-  $('#race-off-num').textContent = race.off ? `${fmt(race.off * e)}/s` : '–';
-  requestAnimationFrame(raceFrame);
-}
-
-// Chip graphic: pins light up in proportion to live CPACF activity
-const chip = { rate: 0, pins: [], acc: 0, last: 0 };
-function buildChip() {
-  const svg = $('.chip-svg'), ns = 'http://www.w3.org/2000/svg';
-  const pins = svg.querySelector('.pins'), grid = svg.querySelector('.chip-grid');
-  for (let i = 0; i < 8; i++) {
-    const p = 58 + i * 17.7;
-    [[p, 40, p, 20], [p, 200, p, 220], [40, p, 20, p], [200, p, 220, p]].forEach(([x1, y1, x2, y2]) => {
-      const l = document.createElementNS(ns, 'line');
-      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
-      l.setAttribute('class', 'pin'); pins.append(l); chip.pins.push(l);
-    });
-  }
-  for (let i = 1; i < 6; i++) {
-    const p = 58 + i * (124 / 6);
-    [[p, 58, p, 182], [58, p, 182, p]].forEach(([x1, y1, x2, y2]) => {
-      const l = document.createElementNS(ns, 'line');
-      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
-      grid.append(l);
-    });
-  }
-  requestAnimationFrame(chipFrame);
-}
-function chipFrame(now) {
-  const dt = chip.last ? (now - chip.last) / 1000 : 0; chip.last = now;
-  chip.acc += Math.min(40, chip.rate / 10) * dt;     // flashes per second scale with live rate
-  while (chip.acc >= 1) {
-    chip.acc -= 1;
-    const pin = chip.pins[Math.floor(Math.random() * chip.pins.length)];
-    pin.classList.add('lit'); setTimeout(() => pin.classList.remove('lit'), 180);
-  }
-  requestAnimationFrame(chipFrame);
 }
 
 // =================================================================
@@ -790,7 +738,5 @@ if (CONFIG.EXTENSION_URL && CONFIG.EXTENSION_URL !== '#') {
 }
 $('#howto-btn').addEventListener('click', () => $('#install-steps').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 
-buildChip();
-requestAnimationFrame(raceFrame);
 showTab(location.hash.slice(1) || 'dashboard');
 if (location.hash.slice(1) !== 'catches') loadCatches();   // fill "Latest 15 scams" on every page load
