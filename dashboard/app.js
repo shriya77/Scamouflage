@@ -158,11 +158,14 @@ const fh = {
   queue: [], seen: new Set(), x: 0, last: 0, pausedUntil: 0, catchQueue: [],
   track: null, strip: null, started: false, demoTimer: null,
 };
+// A plausible hostname: labels of letters/digits/-/_ (optional leading *.), at least one dot, ≤ 253 chars
+const HOSTNAME = /^(\*\.)?[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?)+$/i;
 function feedDomains(list) {
   if (!Array.isArray(list)) return;
   for (const d of list) {
-    const name = typeof d === 'string' ? d : (d?.domain || d?.name);
-    if (!name || fh.seen.has(name)) continue;
+    const raw = typeof d === 'string' ? d : (d?.domain ?? d?.name);
+    const name = typeof raw === 'string' ? raw.trim() : '';
+    if (!name || name.length > 253 || !HOSTNAME.test(name) || fh.seen.has(name)) continue;   // skip empty/invalid
     fh.seen.add(name);
     fh.queue.push(name);
   }
@@ -204,6 +207,7 @@ function fhFrame(now) {
   requestAnimationFrame(fhFrame);
 }
 function triggerCatch(alert, now) {
+  if (!heroWins(alert)) return;   // empty, or worse than the catch already on the card
   // Pick the stream item closest to the middle and turn it into the scam domain
   const items = [...fh.track.children];
   const mid = fh.strip.clientWidth / 2;
@@ -249,10 +253,11 @@ function connectWS() {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     const msgs = Array.isArray(msg) ? msg : [msg];
     for (const m of msgs) {
-      feedDomains(extractDomains(m));
-      if (m.type === 'cpacf' && m.groups) renderCpacf(m);
-      const al = m.type === 'alert' ? m : (m.alert || null);
-      if (al) handleAlerts([normalizeAlert(al)]);
+      const d = (m && typeof m.data === 'object' && m.data) || m;   // server sends {type, source, data}
+      if (m.type !== 'alert') feedDomains(extractDomains(d));       // alerts never go into the blurred stream
+      if (m.type === 'cpacf' && d.groups && d.available !== false) renderCpacf(d);
+      const al = m.type === 'alert' ? d : (m.alert || null);
+      if (al && alertsPrimed) handleAlerts([normalizeAlert(al)]);   // before the first poll, the poll covers it
     }
   };
   ws.onclose = () => setTimeout(connectWS, 5000);
@@ -261,6 +266,8 @@ function connectWS() {
 
 // ---------- Catch card ----------
 function showCatchCard(a, animate) {
+  if (heroRank(a) < 0) return;    // never render a card with no domain
+  heroShown = heroRank(a);
   const card = $('#catch-card');
   card.hidden = false;
   const known = isKnown(a);
@@ -281,6 +288,17 @@ function showCatchCard(a, animate) {
 }
 
 // ---------- Alert bookkeeping ----------
+// Catch card priority: a NEW toll/delivery/gov catch (stage != 0) > a known-list toll/delivery/gov
+// site > anything else ("other"). -1 = no domain, never shown.
+const heroRank = a => !String(a?.domain ?? '').trim() ? -1
+  : SCAM_CATEGORIES.has(a.category) ? (isKnown(a) ? 2 : 3) : 1;
+let heroShown = -1;               // rank of the catch on the card now
+// A new scam always takes the card; otherwise only something better, or an equally good scam
+const heroWins = a => {
+  const r = heroRank(a);
+  return r >= 0 && (r === 3 || r > heroShown || (r === heroShown && r >= 2));
+};
+
 const seenAlerts = new Set();
 let alertsPrimed = false;
 let latestAlerts = [];
@@ -288,12 +306,14 @@ function handleAlerts(list) {
   if (!alertsPrimed) {
     list.forEach(a => seenAlerts.add(a.id));
     alertsPrimed = true;
-    if (list[0]) showCatchCard(list[0], false);   // show the newest catch without the animation
+    // Show the best catch without the animation: highest rank, newest first among equals
+    const best = list.reduce((b, a) => heroRank(a) > heroRank(b) ? a : b, null);
+    if (best) showCatchCard(best, false);
     return;
   }
   const fresh = list.filter(a => !seenAlerts.has(a.id));
   fresh.forEach(a => seenAlerts.add(a.id));
-  fresh.reverse().forEach(a => fh.catchQueue.push(a));   // oldest first
+  fresh.reverse().filter(a => heroRank(a) >= 0).forEach(a => fh.catchQueue.push(a));   // oldest first
 }
 
 // ---------- Rendering helpers ----------
