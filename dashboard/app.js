@@ -418,7 +418,7 @@ function renderResults(raw, lead) {
   const kwFa = num(r?.baselines?.keyword_rule?.false_alarms_per_10k);
   const nTest = num(pick(r, 'n_test_rows'));
 
-  setText('acc-lead', nTest != null ? `Tested on ${fmt(nTest)} websites the model never saw during training.` : '');
+  setText('acc-lead', nTest != null ? `Tested on ${fmt(nTest)} websites it had never seen before.` : '');
   $('#acc-pending').hidden = [recall, prec, fa].some(v => v != null);
 
   $('#tile-recall').hidden = recall == null;
@@ -427,9 +427,9 @@ function renderResults(raw, lead) {
     let sub = '';
     if (nScams) {
       const caught = Math.round(pct(recall) / 100 * nScams);
-      sub = `${fmt(caught)} of ${fmt(nScams)} test scams.`;
+      sub = `${fmt(caught)} of ${fmt(nScams)} scam sites caught in testing.`;
       if (recallIncl != null && tp != null && caught > tp) {
-        sub += ` ${fmt(tp)} from the web address alone, ${fmt(caught - tp)} more on a second check of how new the site is.`;
+        sub += ` ${fmt(tp)} from the web address alone, ${fmt(caught - tp)} more by checking how new the site is.`;
       }
     }
     setText('recallSub', sub);
@@ -438,13 +438,15 @@ function renderResults(raw, lead) {
   $('#tile-prec').hidden = prec == null;
   if (prec != null) {
     setCount('precN', pct(prec), 1);
-    setText('precSub', tp != null && fp != null ? `${fmt(tp)} of ${fmt(tp + fp)} alarms were real scams` : '');
+    setText('precSub', tp != null && fp != null ? `${fmt(tp)} of ${fmt(tp + fp)} warnings were right` : '');
   }
 
-  $('#tile-fa').hidden = fa == null;
-  if (fa != null) {
-    setCount('faN', fa, 1);
-    setText('faSub', kwFa != null ? `a brand-word filter makes ${kwFa.toFixed(1)}` : '');
+  // 0.505 false alarms per 10,000 -> "1 in 19,800" real sites, rounded to 3 significant figures
+  const oneIn = v => { const n = 10000 / v, p = Math.pow(10, Math.max(0, Math.floor(Math.log10(n)) - 2)); return Math.round(n / p) * p; };
+  $('#tile-fa').hidden = !(fa > 0);
+  if (fa > 0) {
+    setCount('faN', oneIn(fa));
+    setText('faSub', kwFa > 0 ? `a simple keyword filter: 1 in ${fmt(oneIn(kwFa))}` : '');
   }
 
   // Lead time: only when at least one of our catches was later listed by a feed
@@ -457,7 +459,7 @@ function renderResults(raw, lead) {
     const hours = days < 2;
     setCount('leadDaysN', hours ? Math.round(days * 24) : days, hours ? 0 : 1);
     $('#leadDaysUnit').textContent = hours ? ' h' : ' days';
-    $('#leadDaysSub').textContent = `median over ${fmt(lead.n)} catches`;
+    $('#leadDaysSub').textContent = +lead.n === 1 ? 'based on 1 catch so far' : `median over ${fmt(lead.n)} catches`;
   }
   $('#tile-lead-share').hidden = share == null;
   if (share != null) setCount('leadShareN', pct(share));

@@ -29,8 +29,8 @@
 <!-- ============ LIVE ============ -->
 <div id="panel-dashboard" data-page="dashboard">
   <div class="wrap hero">
-    <h1>Scam sites need a certificate. We read every one.</h1>
-    <p class="lead">Every new website gets a public security certificate before it goes live. Scamouflage checks each one as it appears and flags fake toll, delivery and government sites before the first scam text goes out.</p>
+    <h1>Spot the scam before it spots you.</h1>
+    <p class="lead">We flag scam websites as soon as they go live.</p>
   </div>
 
   <section class="stream" aria-label="Live certificate stream">
@@ -58,8 +58,8 @@
   </div>
 
   <section class="wrap" aria-labelledby="funnel-h">
-    <h2 id="funnel-h" style="font-size:clamp(32px,4vw,52px)">26 minutes of the internet, filtered down to the scams</h2>
-    <p class="lead" style="margin-top:12px">A real 26-minute recording of the live certificate stream, run through the same engine that is running now.</p>
+    <h2 id="funnel-h" style="font-size:clamp(32px,4vw,52px)">How 1.4 million new websites became 87 scam alerts</h2>
+    <p class="lead" style="margin-top:12px">In just 26 minutes, 1,359,910 new websites went online. Most are harmless. Here's how Scamouflage narrowed them down to the scams.</p>
     <div class="funnel" id="funnel">
       <div class="step">
         <div class="head"><span class="big num" data-count="1359910">1,359,910</span><span>new website names appeared.</span></div>
@@ -85,7 +85,7 @@
 
   <section class="results" id="report" aria-labelledby="acc-h">
     <div class="wrap">
-      <h2 id="acc-h">How accurate is it?</h2>
+      <h2 id="acc-h">How accurate is our prediction model?</h2>
       <p class="lead" id="acc-lead" style="margin-top:10px" hidden></p>
       <p class="fine" id="acc-pending" style="margin-top:10px" hidden>Test results appear here as soon as the model finishes evaluating. We never show placeholder accuracy.</p>
 
@@ -97,22 +97,22 @@
         </div>
         <div class="tile" id="tile-prec" hidden>
           <b class="tile-n"><span class="num" id="precN"></span><small>%</small></b>
-          <span class="tile-l">right when it warns</span>
+          <span class="tile-l">of its warnings are real scams</span>
           <span class="tile-s" id="precSub" hidden></span>
         </div>
         <div class="tile" id="tile-fa" hidden>
-          <b class="tile-n"><span class="num" id="faN"></span></b>
-          <span class="tile-l">false alarms per 10,000 real sites</span>
+          <b class="tile-n"><small class="tile-pre">1 in </small><span class="num" id="faN"></span></b>
+          <span class="tile-l">real websites wrongly flagged</span>
           <span class="tile-s" id="faSub" hidden></span>
         </div>
         <div class="tile">
           <b class="tile-n"><span class="num" data-count="11485">11,485</span></b>
-          <span class="tile-l">sites checked per second</span>
+          <span class="tile-l">websites checked every second</span>
           <span class="tile-s">on IBM LinuxONE</span>
         </div>
         <div class="tile">
           <b class="tile-n"><span class="num" data-count="432589">432,589</span></b>
-          <span class="tile-l">real websites studied</span>
+          <span class="tile-l">real websites it learned from</span>
           <span class="tile-s">trained in under two minutes with IBM Snap ML</span>
         </div>
       </div>
