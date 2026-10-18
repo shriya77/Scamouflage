@@ -384,7 +384,7 @@ async function loadDashboard() {
   renderBreakdown(categories);
 
   // ---- Accuracy: real results or "Evaluation running…" ----
-  renderResults(resultsRaw, leadRaw, stats.rate);
+  renderResults(resultsRaw, leadRaw);
 
   // ---- IBM panel ----
   renderBench(bench);
@@ -411,7 +411,7 @@ function renderBreakdown(cats) {
   });
 }
 
-function renderResults(raw, lead, certsPerSec) {
+function renderResults(raw, lead) {
   // /api/results: { precision, recall, pr_auc, false_alarms_per_10k, baselines: { unit42_regex, keyword_rule } }
   // /api/leadtime: { median_days, min_days, max_days, share_before_any_feed, n }
   const r = raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results) ? raw.results : raw;
@@ -419,20 +419,13 @@ function renderResults(raw, lead, certsPerSec) {
   const prec   = pick(r, 'precision', 'test_precision');
   const prAuc  = pick(r, 'pr_auc');
   const fa10k  = pick(r, 'false_alarms_per_10k', 'fa_per_10k');
-  let faDay    = pick(r, 'false_alarms_per_day', 'fa_per_day', 'false_alarms_day');
-  let faDayEstimated = false;
-  if (faDay == null && fa10k != null && certsPerSec) {
-    // false alarms per day = (false alarms per 10,000 certs) x (certs per day / 10,000)
-    faDay = Math.round(fa10k / 10000 * certsPerSec * 86400);
-    faDayEstimated = true;
-  }
   const leadOk = lead && Number(lead.n) > 0;
   const leadDays = leadOk ? pick(lead, 'median_days') : null;
   const leadShare = leadOk ? pick(lead, 'share_before_any_feed') : null;
 
   const box = $('#metrics');
-  const hasAny = [faDay, recall, prec, fa10k].some(v => v != null && !isNaN(v)) || leadOk;
-  const key = JSON.stringify([faDay, recall, prec, prAuc, fa10k, leadDays, leadShare, lead?.n, r?.baselines]);
+  const hasAny = [recall, prec, fa10k].some(v => v != null && !isNaN(v)) || leadOk;
+  const key = JSON.stringify([recall, prec, prAuc, fa10k, leadDays, leadShare, lead?.n, r?.baselines]);
   if (box.dataset.key === key) return;          // avoid re-rendering every poll
   box.dataset.key = key;
   box.replaceChildren();
@@ -450,17 +443,6 @@ function renderResults(raw, lead, certsPerSec) {
     h.append(el('div', 'metric-value', (+fa10k).toFixed(2)),
       el('div', 'metric-label', 'False alarms per 10,000 normal sites'),
       el('div', 'metric-tech', 'Real websites wrongly flagged, on the held-out test set'));
-    if (faDay != null) {
-      h.append(el('div', 'metric-secondary', faDayEstimated
-        ? `About ${fmt(faDay)} per day at today's live rate of ${fmt(certsPerSec)} certificates/s (estimate)`
-        : `About ${fmt(faDay)} per day on the live stream`));
-    }
-    box.append(h);
-  } else if (faDay != null) {
-    const h = el('div', 'metric metric-hero');
-    h.append(el('div', 'metric-value', fmt(faDay)),
-      el('div', 'metric-label', 'False alarms per day'),
-      el('div', 'metric-tech', 'Normal websites wrongly flagged, out of the full live stream'));
     box.append(h);
   }
   const grid = el('div', 'metrics');
