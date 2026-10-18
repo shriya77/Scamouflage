@@ -2,320 +2,229 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Scamouflage · Live scam-site detection</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jost:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="topbar-inner">
+<header class="top">
+  <div class="wrap">
     <a class="brand" href="#dashboard" aria-label="Scamouflage home">
-      <img src="logo.png" alt="Scamouflage" class="brand-logo" onerror="this.style.display='none'; this.nextElementSibling.hidden=false;">
-      <span class="brand-word" hidden>SCAMOUFLAGE</span>
+      <span class="plate"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F6F4EE" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 15c0-5 4-9 9-9 4 0 7 3 7 6s-2 5-5 5c-2 0-3-1-3-3 0-1 1-2 2-2"/><circle cx="16" cy="9.5" r="1.2" fill="#F6F4EE"/><path d="M4 19h12"/></svg></span>
+      <span>Scamouflage</span>
     </a>
-    <nav class="tabs" role="tablist" aria-label="Sections">
-      <button class="tab-btn" data-tab="dashboard" role="tab">Dashboard</button>
-      <button class="tab-btn" data-tab="catches" role="tab">Latest 15 scams</button>
-      <button class="tab-btn" data-tab="extension" role="tab">Get the extension</button>
+    <nav class="tabs" aria-label="Pages">
+      <a href="#dashboard" data-tab="dashboard">Live</a>
+      <a href="#catches" data-tab="catches">Latest catches</a>
+      <a href="#extension" data-tab="extension">Get the extension</a>
+      <span class="live" id="status" title="Connection to the LinuxONE server"><i></i><span id="status-text">Connecting…</span></span>
     </nav>
-    <div class="status" id="status" title="Connection to the LinuxONE server">
-      <span class="dot"></span><span id="status-text">Connecting…</span>
-    </div>
   </div>
 </header>
 
 <main>
+<!-- ============ LIVE ============ -->
+<div id="panel-dashboard" data-page="dashboard">
+  <div class="wrap hero">
+    <h1>Scam sites need a certificate. We read every one.</h1>
+    <p class="lead">Every new website gets a public security certificate before it goes live. Scamouflage checks each one as it appears and flags fake toll, delivery and government sites before the first scam text goes out.</p>
+  </div>
 
-  <!-- ============ DASHBOARD ============ -->
-  <section class="tab-panel" id="panel-dashboard">
-    <div class="hero">
-      <p class="eyebrow">AI Secured · Live on IBM LinuxONE</p>
-      <h1>Scam sites wear camouflage.<br>We catch them the moment they're born.</h1>
-      <p class="lede">Every website needs a security certificate, and every certificate is public. Scamouflage reads each one as it's issued, scores it with AI, and flags fake toll, delivery and government sites before the first scam text is sent.</p>
+  <section class="stream" aria-label="Live certificate stream">
+    <div class="row r1" id="r1" aria-hidden="true"></div>
+    <div class="row r2" id="r2" aria-hidden="true"></div>
+    <div class="row r3" id="r3" aria-hidden="true"></div>
+    <p class="stream-wait" id="stream-wait">Waiting for the live domain feed…</p>
+    <span class="demo-note stream-demo" id="stream-demo" hidden>Demo replay</span>
+    <div class="catch" id="catch" aria-live="polite">
+      <div class="sign">
+        <div class="sign-text">
+          <small id="catchWhen"></small>
+          <span class="domain" id="catchDomain"></span>
+          <em id="catchWhy"></em>
+        </div>
+        <div class="score"><b id="catchScore"></b><span>scam score</span></div>
+      </div>
     </div>
+  </section>
+  <div class="wrap stream-caption">
+    <span data-stat hidden><b class="num" id="cps">–</b> new certificates a second</span>
+    <span data-stat hidden>checked in <b class="num"><span id="verifyMs">–</span> ms</b> each</span>
+    <span data-stat hidden><b class="num" id="certTotal">–</b> checked since we started</span>
+    <span data-stat hidden><b class="num" id="newTotal" style="color:var(--rust)">–</b> new scam sites caught</span>
+  </div>
 
-    <!-- Firehose: real domains streaming past, blurred; a caught scam de-cloaks -->
-    <section class="firehose" aria-label="Live certificate stream">
-      <div class="fh-head">
-        <span class="live-dot"></span>
-        <span>New websites, live from public certificate logs</span>
-        <span class="fh-rate" id="fh-rate"></span>
-        <span class="sim-badge" id="fh-demo" hidden>Demo replay</span>
+  <section class="wrap" aria-labelledby="funnel-h">
+    <h2 id="funnel-h" style="font-size:clamp(32px,4vw,52px)">26 minutes of the internet, filtered down to the scams</h2>
+    <p class="lead" style="margin-top:12px">A real 26-minute recording of the live certificate stream, run through the same engine that is running now.</p>
+    <div class="funnel" id="funnel">
+      <div class="step">
+        <div class="head"><span class="big num" data-count="1359910">1,359,910</span><span>new website names appeared.</span></div>
+        <div class="fbar" style="width:100%;background:#8A9A8F"></div>
+        <span class="ratio">every new site</span>
       </div>
-      <div class="fh-strip" id="fh-strip" aria-hidden="true">
-        <div class="fh-track" id="fh-track"></div>
-        <p class="fh-wait" id="fh-wait">Waiting for the live domain feed…</p>
+      <div class="step">
+        <div class="head"><span class="big num" data-count="503">503</span><span>used the name of a toll agency, a delivery company or a government office.</span></div>
+        <div class="fbar" style="width:46%;background:var(--ink)"></div>
+        <span class="ratio">1 in 2,700 sites. The rest are skipped in 0.17 ms.</span>
       </div>
-
-      <article class="catch-card" id="catch-card" hidden aria-live="polite">
-        <div class="cc-top">
-          <span class="cc-label" id="cc-label">Scam caught</span>
-          <span class="cc-time" id="cc-time"></span>
-          <span class="sim-badge" id="cc-demo" hidden>Demo replay</span>
-        </div>
-        <div class="cc-main">
-          <div class="score-pill high" id="cc-score">–</div>
-          <div class="cc-body">
-            <div class="cc-domain" id="cc-domain"></div>
-            <div class="reasons" id="cc-reasons"></div>
-            <div class="detail-links">
-              <a id="cc-crtsh" href="#" target="_blank" rel="noopener noreferrer">↗ Public certificate record (crt.sh)</a>
-              <span id="cc-stage"></span>
-            </div>
-          </div>
-          <div class="seal-stamp" id="cc-seal" hidden>
-            <span class="seal-check">✓</span>
-            <span>Sealed on<br>IBM CPACF</span>
-          </div>
-        </div>
-      </article>
-    </section>
-
-    <div class="stats">
-      <article class="stat">
-        <p class="stat-label">Certificates checked</p>
-        <p class="stat-value" id="stat-checked">–</p>
-        <p class="stat-sub">New websites inspected since we started</p>
-        <span class="sim-badge" data-sim="stats" hidden>Offline sample</span>
-      </article>
-      <article class="stat">
-        <p class="stat-label">Checked per second</p>
-        <p class="stat-value" id="stat-rate">–</p>
-        <p class="stat-sub" id="stat-rate-sub">Live from public certificate logs</p>
-        <span class="sim-badge" data-sim="stats" hidden>Offline sample</span>
-      </article>
-      <article class="stat stat-alert">
-        <p class="stat-label">New scam sites caught</p>
-        <p class="stat-value" id="stat-new">–</p>
-        <p class="stat-sub" id="stat-known">Not yet on any public blocklist</p>
-      </article>
-      <article class="stat">
-        <p class="stat-label">Certificate signatures verified</p>
-        <p class="stat-value" id="stat-hw">–</p>
-        <p class="stat-sub" id="stat-hw-sub">Each certificate checked against its issuer</p>
-        <span class="sim-badge" data-sim="stats" hidden>Offline sample</span>
-      </article>
+      <div class="step">
+        <div class="head"><span class="big num" data-count="87" style="color:var(--rust)">87</span><span>were scored as scams by the model. None were on any blocklist yet.</span></div>
+        <div class="fbar" style="width:14%;min-width:64px;background:var(--rust)"></div>
+        <span class="ratio">1 in 15,600 new sites</span>
+      </div>
     </div>
-
-    <div class="grid-2">
-      <article class="card">
-        <header class="card-head">
-          <div>
-            <h3>Who the scammers pretend to be</h3>
-            <p class="card-sub">Each site counted once</p>
-          </div>
-        </header>
-        <div id="breakdown" class="breakdown"></div>
-      </article>
-
-      <article class="card">
-        <header class="card-head">
-          <div>
-            <h3>How accurate is it?</h3>
-            <p class="card-sub">Tested on scam sites the model never saw during training</p>
-          </div>
-        </header>
-        <div id="metrics"></div>
-      </article>
-    </div>
-
-    <!-- AI Secured: privacy and trust -->
-    <section class="secure">
-      <div class="secure-head">
-        <p class="eyebrow">AI Secured</p>
-        <h3>Powerful AI. Protected people.</h3>
-      </div>
-      <div class="secure-grid">
-        <article class="secure-item">
-          <span class="secure-icon">🔏</span>
-          <h4>Every alert is signed</h4>
-          <p>Each scam alert is signed with Ed25519 on IBM's CPACF crypto chip. Anyone can check it with our public key, so a forged or edited alert is caught instantly.</p>
-        </article>
-        <article class="secure-item">
-          <span class="secure-icon">🕶️</span>
-          <h4>We never see your browsing</h4>
-          <p>The extension downloads a signed list of hashed scam domains and checks each site on your own device. No website you visit is ever sent to us.</p>
-        </article>
-        <article class="secure-item">
-          <span class="secure-icon">🧪</span>
-          <h4>We never open scam sites</h4>
-          <p>The AI works only from public certificate data. Suspected scam domains are shown as plain text, never as clickable links.</p>
-        </article>
-      </div>
-    </section>
-
-    <!-- IBM panel -->
-    <article class="card ibm">
-      <header class="card-head">
-        <div>
-          <p class="eyebrow">Powered by IBM LinuxONE</p>
-          <h3>Every certificate runs through IBM's crypto chip</h3>
-          <p class="card-sub" id="bench-machine">Measured on our server</p>
-        </div>
-        <span class="sim-badge" data-sim="bench" hidden>Offline sample</span>
-      </header>
-
-      <div class="ibm-grid">
-        <div class="chip-panel">
-          <div class="chip-wrap">
-            <svg class="chip-svg" viewBox="0 0 240 240" aria-hidden="true">
-              <g class="pins">
-                <!-- pins generated in app.js -->
-              </g>
-              <rect x="40" y="40" width="160" height="160" rx="16" class="chip-body"/>
-              <rect x="58" y="58" width="124" height="124" rx="10" class="chip-die"/>
-              <g class="chip-grid"></g>
-              <rect x="58" y="58" width="124" height="124" rx="10" class="chip-glow"/>
-            </svg>
-            <div class="chip-label">
-              <div class="chip-name" id="chip-name">IBM Z</div>
-              <div class="chip-sub">CPACF crypto</div>
-              <div class="chip-live" id="cpacf-verify">–</div>
-              <div class="chip-unit">signature checks / s</div>
-            </div>
-          </div>
-          <div class="chip-counters">
-            <div><span class="cc-num" id="cpacf-sha">–</span><span class="fine">certificate hashes / s</span></div>
-            <div><span class="cc-num" id="cpacf-total">–</span><span class="fine">signatures verified in hardware so far</span></div>
-          </div>
-          <div class="chip-foot">
-            <span class="live-dot"></span> Live from the chip's own activity counters
-            <span class="sim-badge" data-sim="cpacf" hidden>Offline sample</span>
-          </div>
-        </div>
-
-        <div class="race-panel">
-          <div class="race-title">Race: checking real certificate signatures for one second</div>
-          <div class="lane">
-            <div class="lane-name">IBM CPACF</div>
-            <div class="lane-track"><div class="lane-fill on" id="race-on"></div></div>
-            <div class="lane-num" id="race-on-num">–</div>
-          </div>
-          <div class="lane">
-            <div class="lane-name">Software only</div>
-            <div class="lane-track"><div class="lane-fill off" id="race-off"></div></div>
-            <div class="lane-num" id="race-off-num">–</div>
-          </div>
-          <div class="race-result"><span id="race-x">–</span> faster on the IBM chip</div>
-          <div class="speed-list" id="speed-list"></div>
-        </div>
-      </div>
-
-      <p class="fine">Same code and data, run twice; only the setting that lets OpenSSL use IBM's CPACF crypto hardware changes. RSA isn't accelerated by this hardware, so RSA-signed certificates show about 1× by design.</p>
-    </article>
+    <p class="lead" style="font-size:18px;margin-top:36px">Each one is then checked against the domain registry, signed on the IBM chip, and sent to every installed extension.</p>
+    <p class="fine" style="margin-top:14px">Bar widths use a log scale so the smallest step stays visible.</p>
   </section>
 
-  <!-- ============ LATEST CATCHES ============ -->
-  <section class="tab-panel" id="panel-catches" hidden>
-    <div class="section-head">
-      <div>
-        <h2>Latest 15 scams</h2>
-        <p>The 15 newest fake toll, delivery and government sites our AI flagged. Domains are shown as plain text; we never open these sites, so you never have to.</p>
+  <div class="wrap"><div class="lane" aria-hidden="true"></div></div>
+
+  <section class="results" id="report" aria-labelledby="acc-h">
+    <div class="wrap">
+      <h2 id="acc-h">How accurate is it?</h2>
+      <p class="lead" id="acc-lead" style="margin-top:10px" hidden></p>
+      <p class="fine" id="acc-pending" style="margin-top:10px" hidden>Test results appear here as soon as the model finishes evaluating. We never show placeholder accuracy.</p>
+
+      <div class="bento">
+        <div class="tile tile-hero" id="tile-recall" hidden>
+          <b class="tile-n"><span class="num" id="recallN"></span><small>%</small></b>
+          <span class="tile-l">of fake toll, delivery and government sites caught</span>
+          <span class="tile-s" id="recallSub" hidden></span>
+        </div>
+        <div class="tile" id="tile-prec" hidden>
+          <b class="tile-n"><span class="num" id="precN"></span><small>%</small></b>
+          <span class="tile-l">right when it warns</span>
+          <span class="tile-s" id="precSub" hidden></span>
+        </div>
+        <div class="tile" id="tile-fa" hidden>
+          <b class="tile-n"><span class="num" id="faN"></span></b>
+          <span class="tile-l">false alarms per 10,000 real sites</span>
+          <span class="tile-s" id="faSub" hidden></span>
+        </div>
+        <div class="tile">
+          <b class="tile-n"><span class="num" data-count="11485">11,485</span></b>
+          <span class="tile-l">sites checked per second</span>
+          <span class="tile-s">on IBM LinuxONE</span>
+        </div>
+        <div class="tile">
+          <b class="tile-n"><span class="num" data-count="432589">432,589</span></b>
+          <span class="tile-l">real websites studied</span>
+          <span class="tile-s">trained in under two minutes with IBM Snap ML</span>
+        </div>
       </div>
-      <button id="refresh-btn" class="btn btn-ghost" type="button">↻ Refresh</button>
-    </div>
 
-    <div class="legend">
-      <span class="legend-item"><i class="swatch high"></i>90–100 Almost certainly a scam</span>
-      <span class="legend-item"><i class="swatch mid"></i>75–89 Very suspicious</span>
-      <span class="legend-item"><i class="swatch low"></i>Below 75 Worth a look</span>
+      <div class="bento bento-extra" id="lead-tiles" hidden>
+        <div class="tile" id="tile-lead-days" hidden>
+          <b class="tile-n"><span class="num" id="leadDaysN"></span><small id="leadDaysUnit"></small></b>
+          <span class="tile-l">head start on public blocklists</span>
+          <span class="tile-s" id="leadDaysSub"></span>
+        </div>
+        <div class="tile" id="tile-lead-share" hidden>
+          <b class="tile-n"><span class="num" id="leadShareN"></span><small>%</small></b>
+          <span class="tile-l">caught before any public feed</span>
+          <span class="tile-s">of our catches that a feed listed later</span>
+        </div>
+      </div>
     </div>
-
-    <section class="catch-group" id="group-new" hidden>
-      <h3>New catches <span class="group-count" id="count-new">0</span></h3>
-      <p class="card-sub">Not on any public scam list when we flagged them.</p>
-      <ol id="list-new" class="catch-list"></ol>
-    </section>
-    <section class="catch-group" id="group-known" hidden>
-      <h3>Known scams <span class="group-count" id="count-known">0</span></h3>
-      <p class="card-sub">Already on a public scam list when we saw the certificate.</p>
-      <ol id="list-known" class="catch-list"></ol>
-    </section>
-    <p class="empty" id="catch-empty" hidden>Loading…</p>
   </section>
 
-  <!-- ============ EXTENSION ============ -->
-  <section class="tab-panel" id="panel-extension" hidden>
-    <div class="ext-hero">
-      <div class="ext-copy">
-        <p class="eyebrow">Free Chrome extension</p>
-        <h2>Get warned before<br>you pay a fake toll.</h2>
-        <p class="lede">If you tap a link in a "you owe a toll" or "your package is held" text, Scamouflage shows a full-page warning before you can pay, and tells you why the site looks fake. It checks every site privately, on your own device.</p>
-        <div class="ext-actions">
-          <div class="ext-btns">
-            <button id="howto-btn" class="btn btn-primary" type="button">How to install</button>
-            <a id="install-btn" class="btn btn-ghost" href="#" target="_blank" rel="noopener" hidden>Download the extension</a>
-          </div>
-          <span class="fine">Chrome extension. Free, no account needed.</span>
-        </div>
+  <section class="ibm" aria-labelledby="ibm-h">
+    <div class="wrap split" style="align-items:center">
+      <div style="flex:1 1 340px;display:flex;justify-content:center">
+        <svg viewBox="0 0 320 320" width="340" style="max-width:100%" role="img" aria-label="IBM chip, pins pulsing with live signature checks">
+          <g stroke="#9FB8AA" stroke-width="5" stroke-linecap="round" id="pins"></g>
+          <rect x="60" y="60" width="200" height="200" rx="14" fill="#101813" stroke="#3E5A4C" stroke-width="3"/>
+          <rect x="88" y="88" width="144" height="144" rx="8" fill="none" stroke="#2F4A3D" stroke-width="2"/>
+          <text x="160" y="128" text-anchor="middle" fill="#9FB8AA" font-family="Overpass, sans-serif" font-weight="700" font-size="15" letter-spacing="3" id="chipName">IBM Z</text>
+          <text x="160" y="178" text-anchor="middle" fill="#F6F4EE" font-family="Overpass, sans-serif" font-weight="800" font-size="44" id="chipRate">–</text>
+          <text x="160" y="202" text-anchor="middle" fill="#9FB8AA" font-family="IBM Plex Sans, sans-serif" font-size="12">signature checks / s</text>
+        </svg>
       </div>
-
-      <figure class="ext-shot">
-        <img id="ext-shot-img" src="extension-screenshot.png" alt="Scamouflage warning page" onerror="this.remove(); document.getElementById('ext-mock').hidden = false;">
-        <div class="browser" id="ext-mock" hidden>
-          <div class="browser-bar">
-            <span class="b-dot"></span><span class="b-dot"></span><span class="b-dot"></span>
-            <span class="b-url">ezpass.com-pay-xk2.win</span>
-          </div>
-          <div class="warn-page">
-            <div class="warn-icon">!</div>
-            <h4>This looks like a toll scam</h4>
-            <p>This site was created hours ago and is pretending to be E-ZPass. Real toll agencies never ask you to pay through a link in a text.</p>
-            <ul class="warn-reasons">
-              <li>Uses "ezpass" in front of a different website</li>
-              <li>Cheap .win address, common in scams</li>
-              <li>Matches a known scam campaign</li>
-            </ul>
-            <div class="warn-actions">
-              <span class="btn btn-primary btn-sm">Go back</span>
-              <span class="warn-proceed">Continue anyway</span>
-            </div>
-          </div>
+      <div style="flex:1.3 1 460px">
+        <h2 id="ibm-h" style="font-size:40px">Every certificate runs through IBM's crypto chip</h2>
+        <p class="lead" style="margin-top:14px;font-size:18px">Same code and the same certificates, run twice on <span id="ibm-machine">our IBM Z server</span>. The only change is whether OpenSSL may use the chip.</p>
+        <div class="race" id="race" hidden>
+          <div><div class="label"><span>With the IBM chip</span><b class="num" id="raceOnN"></b></div><div class="lane-bg"><i class="road" id="raceOn" style="background:var(--sage);height:100%;margin:0"></i></div></div>
+          <div><div class="label"><span>Software only</span><b class="num" id="raceOffN"></b></div><div class="lane-bg"><i class="road" id="raceOff" style="background:#7C878C;height:100%;margin:0;animation-delay:.2s"></i></div></div>
         </div>
-        <figcaption>Example of the warning page</figcaption>
-      </figure>
+        <h3 id="raceX" hidden></h3>
+        <div class="speedups" id="speedups" hidden></div>
+      </div>
     </div>
+  </section>
 
-    <div class="steps">
-      <article class="step">
-        <span class="step-num">1</span>
-        <h4>It keeps a signed list</h4>
-        <p>Every 30 minutes the extension downloads our list of flagged domains and checks its Ed25519 signature. A tampered or older list is rejected.</p>
-      </article>
-      <article class="step">
-        <span class="step-num">2</span>
-        <h4>It checks privately</h4>
-        <p>For each site you open, it hashes the domain and looks it up in the list stored in your browser. Nothing you browse leaves your device.</p>
-      </article>
-      <article class="step">
-        <span class="step-num">3</span>
-        <h4>You get a clear warning</h4>
-        <p>On a match you see a full-page warning with the score and the reasons, then choose Go back or Continue anyway.</p>
-      </article>
+  <section class="wrap trust" aria-label="How we protect you">
+    <div><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2C4A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg><p><b>Every alert is signed.</b> Ed25519 on the IBM chip, so an edited or forged alert fails the check.</p></div>
+    <div><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2C4A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><p><b>Your browsing stays yours.</b> The extension checks each site on your own device. Nothing you visit is sent to us.</p></div>
+    <div><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2C4A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg><p><b>We never open scam sites.</b> Only public certificate data. Domains are plain text, never links.</p></div>
+  </section>
+</div>
+
+<!-- ============ LATEST CATCHES ============ -->
+<div id="panel-catches" data-page="catches" hidden>
+  <section class="wrap catches-layout">
+    <div class="catches-intro">
+      <h1>The 15 newest scam sites</h1>
+      <p class="lead" style="margin-top:18px;font-size:18px;max-width:36ch">Fake toll, delivery and government sites, newest first. Tap one to see why it was flagged. We never open these sites, so you never have to.</p>
+      <button class="btn btn-line" id="refresh-btn" type="button" style="margin-top:24px">Check for new ones</button>
+      <p class="fine" style="margin-top:24px;line-height:1.7">Score 90 to 100: almost certainly a scam.<br>75 to 89: very suspicious.</p>
     </div>
+    <div class="roll">
+      <div class="perf" aria-hidden="true"></div>
+      <div class="paper">
+        <div id="group-new" hidden>
+          <div class="roll-head"><b>New catches</b><span>not on any blocklist when we flagged them</span></div>
+          <div id="list"></div>
+        </div>
+        <div id="group-known" hidden>
+          <div class="roll-head" style="margin-top:18px"><b>Already known</b><span>on a blocklist before we saw the certificate</span></div>
+          <div id="known"></div>
+        </div>
+        <p class="roll-empty" id="catch-empty">Loading…</p>
+        <p class="fine" style="margin-top:20px">Each alert is signed on IBM's crypto chip. Domains are plain text, never links.</p>
+      </div>
+    </div>
+  </section>
+</div>
 
-    <article class="card install" id="install-steps">
-      <h3>Install it in Chrome</h3>
-      <ol class="install-list">
+<!-- ============ EXTENSION ============ -->
+<div id="panel-extension" data-page="extension" hidden>
+  <section class="wrap ext">
+    <div style="flex:1 1 360px">
+      <h1>Stop before you pay a fake toll.</h1>
+      <p class="lead" style="margin-top:20px">Tap a link in a "you owe a toll" text and Scamouflage steps in with a full-page warning, before the payment form loads.</p>
+      <ol id="install-steps">
         <li>Download the <code>extension</code> folder from our project.</li>
-        <li>Open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).</li>
-        <li>Click <strong>Load unpacked</strong> and choose the <code>extension</code> folder.</li>
+        <li>Open <code>chrome://extensions</code> and turn on <b>Developer mode</b> (top right).</li>
+        <li>Click <b>Load unpacked</b> and choose the <code>extension</code> folder.</li>
         <li>Pin Scamouflage to your toolbar. You're protected.</li>
       </ol>
-      <p class="fine">Before a Chrome Web Store listing, Chrome installs extensions this way. Demo mode flags a harmless local test page, so the demo never opens a real scam site.</p>
-    </article>
+      <a id="install-btn" class="btn btn-solid" href="#" target="_blank" rel="noopener" hidden>Download the extension</a>
+      <p class="fine" style="margin-top:22px;max-width:46ch;font-size:15px">It checks each site on your own device against a signed list. Nothing you browse is sent anywhere.</p>
+    </div>
+    <div style="flex:1.2 1 500px">
+      <div class="browser">
+        <div class="bar"><span aria-hidden="true" style="display:flex;gap:6px"><i></i><i></i><i></i></span><span class="url">ezpass.com-pay-xk2.win</span></div>
+        <div class="warn">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#FFF7F2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="#FFF7F2"/></svg>
+          <h2>This is not E-ZPass.</h2>
+          <p>This site was created a few hours ago and copies the E-ZPass name. Real toll agencies never ask you to pay through a link in a text.</p>
+          <div class="reasons">"ezpass" sits in front of a different website<br>Cheap .win address, common in scam texts<br>Same pattern as a known scam campaign</div>
+          <div class="actions"><button type="button">Take me back to safety</button><a href="#extension">I understand the risk, continue</a></div>
+        </div>
+      </div>
+      <p class="fine" style="margin-top:14px">Example of the warning page. Demo mode uses a harmless local test page, never a real scam site.</p>
+    </div>
   </section>
-
+</div>
 </main>
 
-<footer class="footer">
-  <p>Built for the IBM Z Datathon 2026. Everything runs on one IBM LinuxONE server. We only read public certificate data and never visit suspected scam sites.</p>
-  <p class="fine">Every number on this page comes live from our server. If the connection drops, boxes marked <span class="sim-badge inline">Offline sample</span> show example values until it's back.</p>
-</footer>
+<footer><div class="wrap">Built for the IBM Z Datathon 2026. Everything runs on one IBM LinuxONE server. Live numbers come straight from our server; we only read public certificate data and never visit suspected scam sites.</div></footer>
 
 <script src="app.js"></script>
 </body>
