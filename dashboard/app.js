@@ -589,27 +589,54 @@ const decidedMs = a => toDate(a.decided_at)?.getTime() || 0;   // ISO UTC; missi
 // Only https://crt.sh/ links are ever clickable. Scam domains stay plain text.
 const crtshLink = u => (typeof u === 'string' && u.startsWith('https://crt.sh/')) ? u : null;
 
-// /api/alerts?limit=200 -> toll/delivery/gov only, newest decided_at first, one row per cert_id, first 15
+// ---------- Registered site (eTLD+1), so one site can't fill the list ----------
+// Small stand-in for the Public Suffix List: common two-part country suffixes...
+const MULTI_PART_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'ac.uk', 'gov.uk',
+  'com.au', 'net.au', 'org.au', 'gov.au', 'co.nz', 'net.nz', 'org.nz', 'govt.nz',
+  'com.ph', 'net.ph', 'org.ph', 'gov.ph', 'co.jp', 'ne.jp', 'or.jp', 'go.jp',
+  'com.br', 'net.br', 'gov.br', 'com.mx', 'gob.mx', 'com.ar', 'com.co', 'com.pe',
+  'co.in', 'net.in', 'org.in', 'gov.in', 'co.za', 'gov.za', 'co.kr', 'or.kr', 'co.id', 'go.id',
+  'co.th', 'in.th', 'com.cn', 'gov.cn', 'com.hk', 'com.tw', 'com.sg', 'gov.sg', 'com.my', 'gov.my',
+  'com.vn', 'com.pk', 'com.ng', 'com.tr', 'gov.tr', 'com.ua', 'co.il', 'com.eg', 'com.sa',
+]);
+// ...and shared hosts where every subdomain is a different owner's site.
+const SHARED_HOSTS = ['pages.dev', 'mybluehost.me', 'vercel.app', 'netlify.app', 'github.io',
+                      'workers.dev', 'web.app', 'firebaseapp.com', 'amplifyapp.com'];
+
+function registeredSite(host) {
+  const h = String(host ?? '').toLowerCase().replace(/^\*\./, '').replace(/\.$/, '');
+  if (!h.includes('.') || /^[\d.]+$/.test(h) || h.includes(':')) return h;   // bare name or IP
+  const labels = h.split('.');
+  for (const s of SHARED_HOSTS) {
+    if (h === s) return h;
+    if (h.endsWith('.' + s)) return labels.slice(-(s.split('.').length + 1)).join('.');
+  }
+  const n = MULTI_PART_SUFFIXES.has(labels.slice(-2).join('.')) ? 3 : 2;
+  return labels.slice(-n).join('.');
+}
+// Prefer a registered-domain field if the API/engine ever sends one.
+const siteOf = a => String(a.registered_domain ?? a.site ?? a.etld1 ?? registeredSite(a.domain)).toLowerCase();
+
+// /api/alerts?limit=200 -> toll/delivery/gov only, newest decided_at first, newest alert per site, first 15
 function latestScams(raw) {
   const rows = (raw?.items || [])
     .filter(a => SCAM_CATEGORIES.has(String(a.category ?? '').toLowerCase()))
     .sort((x, y) => decidedMs(y) - decidedMs(x));   // stable: ties keep the API's newest-first order
-  const seen = new Set(), out = [];
+  const sites = new Map();                          // site -> { newest alert, all names seen }; newest site first
   for (const a of rows) {
-    if (a.cert_id != null) {
-      if (seen.has(a.cert_id)) continue;           // already have this cert's newest row
-      seen.add(a.cert_id);
-    }
-    out.push({
-      ...normalizeAlert(a),                        // stage null -> undefined, so isKnown() treats it as new
-      category: String(a.category).toLowerCase(),
-      brand: a.brand, ageDays: a.age_days, registrar: a.registrar,
-      decided: toDate(a.decided_at), decidedRaw: a.decided_at,
-      crtsh: crtshLink(a.crtsh_url),
-    });
-    if (out.length === CONFIG.CATCHES_LIMIT) break;
+    const site = siteOf(a);
+    if (!sites.has(site)) sites.set(site, { a, names: new Set() });
+    sites.get(site).names.add(String(a.domain ?? '').toLowerCase());
   }
-  return out;
+  return [...sites].slice(0, CONFIG.CATCHES_LIMIT).map(([site, { a, names }]) => ({
+    ...normalizeAlert(a),                           // stage null -> undefined, so isKnown() treats it as new
+    category: String(a.category).toLowerCase(),
+    brand: a.brand, ageDays: a.age_days, registrar: a.registrar,
+    decided: toDate(a.decided_at), decidedRaw: a.decided_at,
+    crtsh: crtshLink(a.crtsh_url),
+    site, moreNames: names.size - 1,
+  }));
 }
 
 function fmtAge(days) {
@@ -653,6 +680,9 @@ function scamRow(a) {
   meta.append(el('span', 'cat-chip', (CAT[a.category] || CAT.other).label));
   if (isKnown(a)) meta.append(el('span', 'stage-chip known', 'Known · already on a scam list'));
   if (a.brand) meta.append(el('span', null, `Brand: ${a.brand}`));
+  if (a.moreNames > 0) {
+    meta.append(el('span', 'more-names', `+${a.moreNames} more name${a.moreNames === 1 ? '' : 's'} on this site`));
+  }
   if (a.decided) {
     const t = el('span', null, `Flagged ${timeAgo(a.decided)}`);
     t.title = a.decidedRaw;

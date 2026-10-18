@@ -441,3 +441,4 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 48px; }
 .baseline-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .baseline-table td { padding: 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .baseline-table tr.ours td { font-weight: 600; color: var(--forest); background: var(--sage-soft); }
+.more-names { font-weight: 600; color: var(--forest); }
