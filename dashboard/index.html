@@ -12,6 +12,8 @@
 <body>
 
 <canvas id="wallpaper" class="wallpaper" aria-hidden="true"></canvas>
+<video id="wallpaper-video" class="wallpaper-video" muted loop playsinline aria-hidden="true"></video>
+<div class="wallpaper-scrim" aria-hidden="true"></div>
 
 <header class="topbar">
   <div class="topbar-inner">
@@ -25,10 +27,15 @@
       <button class="tab-btn" data-tab="extension" role="tab">Extension</button>
     </nav>
     <div class="topbar-right">
-      <label class="wp-toggle" title="Animated background">
-        <input type="checkbox" id="wallpaper-toggle">
-        <span class="wp-switch" aria-hidden="true"></span>
-        <span>Live background</span>
+      <label class="wp-picker">
+        <span>Background</span>
+        <select id="wallpaper-select">
+          <option value="off">Plain</option>
+          <option value="forest">Forest (live)</option>
+          <option value="city">City at night (live)</option>
+          <option value="abstract">Abstract light (live)</option>
+          <option value="constellation">Constellation</option>
+        </select>
       </label>
       <div class="status" id="status" title="Connection to the LinuxONE server">
         <span class="dot"></span><span id="status-text">Connecting…</span>
@@ -48,35 +55,31 @@
 
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Live on IBM LinuxONE</p>
         <h1>Scam sites wear camouflage. We catch them the moment they're born.</h1>
-        <p class="lede">Scamouflage reads every new website certificate as it's issued, scores it with AI, and flags fake toll, delivery and government sites before the first scam text goes out.</p>
+        <p class="lede">Right now someone is getting a text that says they owe $4.35 in tolls. The link goes to a site that went online minutes ago. Scamouflage spots that site as it's created, often before the text even arrives.</p>
       </div>
 
       <article class="catch-card" id="catch-card" hidden aria-live="polite">
-        <div class="cc-top">
-          <span class="cc-label" id="cc-label">New scam caught</span>
-          <span class="cc-time" id="cc-time"></span>
-          <span class="tag tag-demo" id="cc-demo" hidden>Demo replay</span>
+        <p class="cc-kicker"><span id="cc-label">Just caught</span> <span class="cc-time" id="cc-time"></span> <span class="tag tag-demo" id="cc-demo" hidden>Demo replay</span></p>
+        <h2 class="cc-headline" id="cc-headline">A likely scam site</h2>
+        <p class="cc-domain" id="cc-domain"></p>
+        <div class="cc-score">
+          <span class="cc-score-num" id="cc-score">–</span><span class="cc-score-of">/ 100</span>
+          <div class="cc-score-bar"><i id="cc-score-fill"></i></div>
         </div>
-        <div class="cc-main">
-          <div class="score-pill high" id="cc-score">–</div>
-          <div class="cc-domain" id="cc-domain"></div>
-        </div>
-        <div class="reasons" id="cc-reasons"></div>
-        <div class="cc-foot">
-          <span id="cc-stage"></span>
-          <span class="seal" id="cc-seal" hidden>Signed on IBM CPACF</span>
-          <a id="cc-crtsh" href="#" target="_blank" rel="noopener noreferrer">Certificate record ↗</a>
-        </div>
+        <ul class="cc-reasons" id="cc-reasons"></ul>
+        <p class="cc-foot">
+          <span><span id="cc-stage"></span><span class="cc-seal" id="cc-seal" hidden> · signed on IBM CPACF</span></span>
+          <a id="cc-crtsh" href="#" target="_blank" rel="noopener noreferrer">See the certificate ↗</a>
+        </p>
       </article>
 
       <section class="firehose" aria-label="Live certificate stream">
-        <div class="fh-head">
-          <span>Certificates arriving now</span>
+        <p class="fh-head">
+          <span>Websites getting their security certificate right now</span>
           <span class="fh-rate" id="fh-rate"></span>
           <span class="tag tag-demo" id="fh-demo" hidden>Demo replay</span>
-        </div>
+        </p>
         <div class="fh-strip" id="fh-strip" aria-hidden="true">
           <div class="fh-track" id="fh-track"></div>
           <p class="fh-wait" id="fh-wait">Waiting for the live feed…</p>
@@ -84,26 +87,71 @@
       </section>
     </section>
 
-    <section class="stats" aria-label="Pipeline">
-      <div class="stat">
-        <p class="stat-label">Certificates checked</p>
-        <p class="stat-value" id="stat-checked">–</p>
-        <p class="stat-sub">Since the stream started</p>
-      </div>
-      <div class="stat">
-        <p class="stat-label">Per second</p>
-        <p class="stat-value" id="stat-rate">–</p>
-        <p class="stat-sub" id="stat-rate-sub">Live from public certificate logs</p>
-      </div>
-      <div class="stat stat-alert">
-        <p class="stat-label">New scam sites</p>
-        <p class="stat-value" id="stat-new">–</p>
-        <p class="stat-sub" id="stat-known">Not yet on any public blocklist</p>
-      </div>
-      <div class="stat">
-        <p class="stat-label">Signatures verified</p>
-        <p class="stat-value" id="stat-hw">–</p>
-        <p class="stat-sub" id="stat-hw-sub">Each checked against its issuer</p>
+    <!-- The story, with live numbers in each step -->
+    <section class="story card" aria-labelledby="story-title">
+      <h2 id="story-title">How a fake toll site gets caught</h2>
+      <ol class="story-steps">
+        <li>
+          <p class="story-when">Minute zero</p>
+          <h3>A scammer sets up a look-alike site</h3>
+          <p>They pick a name like <span class="mono">ezpass.com-pay.win</span> and request a free certificate so the padlock shows.</p>
+          <p class="story-live"><strong id="story-24h">–</strong> fake toll, delivery and government sites in the last 24 hours</p>
+        </li>
+        <li>
+          <p class="story-when">Seconds later</p>
+          <h3>The certificate becomes public</h3>
+          <p>Every certificate is published in open logs. We read all of them, not just the ones someone reported.</p>
+          <p class="story-live"><strong id="stat-checked">–</strong> certificates read · <strong id="stat-rate">–</strong>/s <span class="story-sub" id="stat-rate-sub"></span></p>
+        </li>
+        <li>
+          <p class="story-when">Under a millisecond</p>
+          <h3>Our AI reads the name and checks the signature</h3>
+          <p>Brand names in the wrong place, cheap web endings and patterns from known scam groups all raise the score.</p>
+          <p class="story-live"><strong id="stat-hw">–</strong> signatures verified <span class="story-sub" id="stat-hw-sub"></span></p>
+        </li>
+        <li>
+          <p class="story-when">Before the text lands</p>
+          <h3>The site is flagged and you're warned</h3>
+          <p>The site goes on a signed list. If you tap the link, the extension warns you before you can pay.</p>
+          <p class="story-live"><strong class="hot" id="stat-new">–</strong> new scam sites caught <span class="story-sub" id="stat-known"></span></p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- How this differs from the usual approach, in plain words -->
+    <section class="compare-approach card" aria-labelledby="approach-title">
+      <h2 id="approach-title">A different way to stop scam sites</h2>
+      <div class="approach-table" role="table">
+        <div class="approach-row approach-head" role="row">
+          <span role="columnheader"></span>
+          <span role="columnheader">Most scam blockers</span>
+          <span role="columnheader">Scamouflage</span>
+        </div>
+        <div class="approach-row" role="row">
+          <span role="rowheader">When a site is caught</span>
+          <span role="cell">After people report it</span>
+          <span role="cell">When its certificate is issued</span>
+        </div>
+        <div class="approach-row" role="row">
+          <span role="rowheader">Your browsing</span>
+          <span role="cell">Often looked up on their servers</span>
+          <span role="cell">Checked on your own device, never sent to us</span>
+        </div>
+        <div class="approach-row" role="row">
+          <span role="rowheader">Trusting the list</span>
+          <span role="cell">You take their word for it</span>
+          <span role="cell">Every list and alert is signed, so tampering shows</span>
+        </div>
+        <div class="approach-row" role="row">
+          <span role="rowheader">Scam sites themselves</span>
+          <span role="cell">Often opened to inspect them</span>
+          <span role="cell">Never visited; we read public certificate data only</span>
+        </div>
+        <div class="approach-row" role="row">
+          <span role="rowheader">Keeping up</span>
+          <span role="cell">General-purpose servers</span>
+          <span role="cell">IBM's on-chip crypto checks every certificate as it arrives</span>
+        </div>
       </div>
     </section>
 
@@ -132,24 +180,30 @@
       </header>
 
       <div class="ibm-grid">
-        <dl class="ibm-live">
-          <div>
-            <dt>Signature checks per second</dt>
-            <dd id="cpacf-verify">–</dd>
+        <div class="chip-panel">
+          <div class="chip-wrap">
+            <svg class="chip-svg" viewBox="0 0 240 240" aria-hidden="true">
+              <g class="pins"></g>
+              <rect x="40" y="40" width="160" height="160" rx="16" class="chip-body"/>
+              <rect x="58" y="58" width="124" height="124" rx="10" class="chip-die"/>
+              <g class="chip-grid"></g>
+              <rect x="58" y="58" width="124" height="124" rx="10" class="chip-glow"/>
+            </svg>
+            <div class="chip-label">
+              <div class="chip-name" id="chip-name">IBM Z</div>
+              <div class="chip-live" id="cpacf-verify">–</div>
+              <div class="chip-unit">signature checks a second</div>
+            </div>
           </div>
-          <div>
-            <dt>Certificate hashes per second</dt>
-            <dd id="cpacf-sha">–</dd>
+          <div class="chip-counters">
+            <div><span class="chip-num" id="cpacf-sha">–</span><span>certificate hashes a second</span></div>
+            <div><span class="chip-num" id="cpacf-total">–</span><span>signatures verified in hardware</span></div>
           </div>
-          <div>
-            <dt>Signatures verified in hardware</dt>
-            <dd id="cpacf-total">–</dd>
-          </div>
-          <p class="fine">From the CPACF chip's own activity counters.</p>
-        </dl>
+          <p class="chip-foot">Each flash is real work on the chip, from its own activity counters.</p>
+        </div>
 
         <div class="compare">
-          <p class="compare-title">Verifying real certificate signatures, one second</p>
+          <p class="compare-title">Verifying real certificate signatures for one second</p>
           <div class="lane">
             <span class="lane-name">IBM CPACF</span>
             <div class="lane-track"><div class="lane-fill on" id="race-on"></div></div>
@@ -167,21 +221,6 @@
 
       <p class="fine">Same code and data, run twice; only the setting that lets OpenSSL use CPACF changes. RSA isn't accelerated by this hardware, so RSA certificates show about 1× by design.</p>
     </article>
-
-    <section class="trust" aria-label="How we keep it safe">
-      <div>
-        <h3>Every alert is signed</h3>
-        <p>Alerts are signed with Ed25519 on IBM's CPACF chip, so a forged or edited alert fails verification with our public key.</p>
-      </div>
-      <div>
-        <h3>We never see your browsing</h3>
-        <p>The extension checks sites against a signed, hashed list on your own device. The sites you visit are never sent to us.</p>
-      </div>
-      <div>
-        <h3>We never open scam sites</h3>
-        <p>The AI works only from public certificate data. Suspected scam domains appear as plain text, never as links.</p>
-      </div>
-    </section>
   </section>
 
   <!-- ============ LATEST SCAMS ============ -->
@@ -248,6 +287,7 @@
 
 <footer class="footer">
   <p>Built for the IBM Z Datathon 2026 on one IBM LinuxONE server. We only read public certificate data and never visit suspected scam sites.</p>
+  <a class="wallpaper-credit" id="wallpaper-credit" href="#" target="_blank" rel="noopener noreferrer" hidden></a>
 </footer>
 
 <script src="wallpaper.js"></script>

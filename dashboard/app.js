@@ -119,6 +119,7 @@ function normalizeAlert(a) {
     crtsh: pick(a, 'crtsh_url', 'crtsh') || `https://crt.sh/?q=${encodeURIComponent(domain)}`,
     confirmedBy: pick(a, 'confirmed_by', 'confirmed'),
     campaign: pick(a, 'campaign', 'campaign_template'),
+    brand: pick(a, 'brand'),
     demo: !!a.__demo,
   };
 }
@@ -268,19 +269,45 @@ function showCatchCard(a, animate) {
   card.hidden = false;
   const known = isKnown(a);
   card.classList.toggle('known', known);
-  $('#cc-label').textContent = known ? 'Flagged · already on a known list' : 'New scam caught';
-  $('#cc-time').textContent = a.time ? timeAgo(a.time) : '';
+  $('#cc-label').textContent = known ? 'Caught, already on a public list' : 'Just caught';
+  $('#cc-time').textContent = a.time ? `· ${timeAgo(a.time)}` : '';
   $('#cc-demo').hidden = !a.demo;
-  const lv = level(a.score);
-  const sp = $('#cc-score');
-  sp.className = `score-pill ${lv}`; sp.textContent = Math.round(a.score * 100);
+  $('#cc-headline').textContent = catchHeadline(a);
   $('#cc-domain').textContent = a.domain;
+  const score = Math.round(a.score * 100);
+  $('#cc-score').textContent = score;
+  $('#cc-score-fill').style.width = score + '%';
   const rs = $('#cc-reasons'); rs.replaceChildren();
-  a.reasons.forEach(r => rs.append(el('span', 'reason', r)));
+  a.reasons.slice(0, 3).forEach(r => rs.append(el('li', null, plainReason(r))));
   const link = $('#cc-crtsh'); link.href = a.crtsh;
-  $('#cc-stage').textContent = known ? 'Already listed by a public phishing feed' : 'Not on any public blocklist yet';
+  $('#cc-stage').textContent = known ? 'Already on a public scam list' : 'Not on any public blocklist yet';
   $('#cc-seal').hidden = a.sealed !== true;
   if (animate) { card.classList.remove('snap'); void card.offsetWidth; card.classList.add('snap'); }
+}
+
+// "A fake DHL site", "A fake toll site", ... in words people use.
+const BRAND_NAMES = {
+  dhl: 'DHL', usps: 'USPS', ups: 'UPS', fedex: 'FedEx', ezpass: 'E-ZPass', 'e-zpass': 'E-ZPass',
+  ntta: 'NTTA', txtag: 'TxTag', sunpass: 'SunPass', fastrak: 'FasTrak', peachpass: 'Peach Pass',
+  ipass: 'I-PASS', irs: 'IRS', dmv: 'DMV', txdmv: 'Texas DMV', hctra: 'HCTRA', eztag: 'EZ TAG',
+};
+const LURE_WORDS = new Set(['toll', 'tolls', 'parcel', 'package', 'redeliver', 'deliver', 'delivery',
+  'shipping', 'tracking', 'citation', 'violation', 'ticket', 'fine', 'courtfee', 'paytoll']);
+const CATEGORY_WORDS = { toll: 'toll', delivery: 'delivery', gov: 'government' };
+function catchHeadline(a) {
+  const brand = String(a.brand ?? '').toLowerCase();
+  if (brand && !LURE_WORDS.has(brand)) {
+    const name = BRAND_NAMES[brand] || (brand.length <= 4 ? brand.toUpperCase() : brand.charAt(0).toUpperCase() + brand.slice(1));
+    return `A fake ${name} site`;
+  }
+  return CATEGORY_WORDS[a.category] ? `A fake ${CATEGORY_WORDS[a.category]} site` : 'A likely scam site';
+}
+// Turn the model's terse reasons into short sentences.
+function plainReason(r) {
+  const m = /^name model score\s+([\d.]+)/i.exec(r);
+  if (m) return `Our AI scored the name ${Math.round(+m[1] * 100)} out of 100.`;
+  const s = r.trim();
+  return /[.!?]$/.test(s) ? s : s + '.';
 }
 
 // ---------- Alert bookkeeping ----------
@@ -427,6 +454,7 @@ function renderBreakdown(list, reached) {
   box.replaceChildren();
   if (!list) {
     box.append(el('p', 'bd-empty', reached ? 'No scam sites in the last 24 hours yet.' : 'Waiting for the live API…'));
+    $('#story-24h').textContent = reached ? '0' : '–';
     return;
   }
   const bySite = new Map();                         // newest first: keep each site's newest alert
@@ -439,6 +467,7 @@ function renderBreakdown(list, reached) {
   const keys = ['toll', 'delivery', 'gov'];
   const total = keys.reduce((n, k) => n + groups[k].length, 0);
   const max = Math.max(1, ...keys.map(k => groups[k].length));
+  $('#story-24h').textContent = fmt(total);
 
   const head = el('div', 'bd-total');
   head.append(el('span', 'bd-total-num', fmt(total)),
@@ -542,6 +571,7 @@ function renderBench(hw) {
   $('#bench-machine').textContent = m
     ? `Measured on our ${m} server (machine type ${hw.machine_type}), with the chip on vs. switched off`
     : 'Measured on our server, with the chip on vs. switched off';
+  $('#chip-name').textContent = m ? m.toUpperCase() : 'IBM Z';
   if (benchRendered && hw === renderBench.last) return;
   renderBench.last = hw; benchRendered = true;
 
@@ -576,6 +606,43 @@ function renderCpacf(c) {
   countTo('cpacf-verify', g.ecdsa_verify_per_s);
   countTo('cpacf-sha', g.sha_per_s);
   countTo('cpacf-total', ecdsaTotal);
+  chip.rate = g.ecdsa_verify_per_s || 0;
+}
+
+// Chip graphic: pins light up in proportion to live CPACF signature checks.
+// Capped so it stays calm: at most CHIP_MAX_FLASHES a second, however busy the chip is.
+const CHIP_MAX_FLASHES = 12;
+const chip = { rate: 0, pins: [], acc: 0, last: 0 };
+function buildChip() {
+  const svg = $('.chip-svg'), ns = 'http://www.w3.org/2000/svg';
+  if (!svg) return;
+  const pins = svg.querySelector('.pins'), grid = svg.querySelector('.chip-grid');
+  const line = (parent, [x1, y1, x2, y2], cls) => {
+    const l = document.createElementNS(ns, 'line');
+    l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+    if (cls) l.setAttribute('class', cls);
+    parent.append(l);
+    return l;
+  };
+  for (let i = 0; i < 8; i++) {
+    const p = 58 + i * 17.7;
+    [[p, 40, p, 20], [p, 200, p, 220], [40, p, 20, p], [200, p, 220, p]].forEach(c => chip.pins.push(line(pins, c, 'pin')));
+  }
+  for (let i = 1; i < 6; i++) {
+    const p = 58 + i * (124 / 6);
+    line(grid, [p, 58, p, 182]); line(grid, [58, p, 182, p]);
+  }
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) requestAnimationFrame(chipFrame);
+}
+function chipFrame(now) {
+  const dt = chip.last ? Math.min(0.25, (now - chip.last) / 1000) : 0; chip.last = now;
+  chip.acc += Math.min(CHIP_MAX_FLASHES, chip.rate / 20) * dt;
+  while (chip.acc >= 1) {
+    chip.acc -= 1;
+    const pin = chip.pins[Math.floor(Math.random() * chip.pins.length)];
+    pin.classList.add('lit'); setTimeout(() => pin.classList.remove('lit'), 260);
+  }
+  requestAnimationFrame(chipFrame);
 }
 
 // =================================================================
@@ -738,5 +805,6 @@ if (CONFIG.EXTENSION_URL && CONFIG.EXTENSION_URL !== '#') {
 }
 $('#howto-btn').addEventListener('click', () => $('#install-steps').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 
+buildChip();
 showTab(location.hash.slice(1) || 'dashboard');
 if (location.hash.slice(1) !== 'catches') loadCatches();   // fill "Latest 15 scams" on every page load
