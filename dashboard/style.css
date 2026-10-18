@@ -113,13 +113,18 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 48px; }
 .fine { font-size: 12.5px; color: var(--muted); }
 
 /* ---------- Breakdown bars ---------- */
-.breakdown { display: grid; gap: 14px; }
-.bd-row { display: grid; grid-template-columns: 120px 1fr 48px; align-items: center; gap: 12px; }
-.bd-name { font-weight: 500; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-.bd-icon { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; background: var(--mist); }
-.bd-track { height: 12px; background: var(--mist); border-radius: 999px; overflow: hidden; }
-.bd-fill { height: 100%; background: var(--forest); border-radius: 999px; transition: width .6s ease; }
-.bd-num { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.breakdown { display: grid; gap: 18px; }
+.bd-total { display: flex; align-items: baseline; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.bd-total-num { font-family: var(--display); font-size: 44px; font-weight: 600; line-height: 1; color: var(--forest); font-variant-numeric: tabular-nums; }
+.bd-total-label { color: var(--muted); font-size: 14px; max-width: 30ch; line-height: 1.35; text-wrap: balance; }
+.bd-row { display: grid; gap: 6px; }
+.bd-top { display: flex; justify-content: space-between; align-items: baseline; }
+.bd-name { font-weight: 600; font-size: 14px; letter-spacing: .01em; }
+.bd-num { font-weight: 600; font-variant-numeric: tabular-nums; }
+.bd-track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bd-fill { height: 100%; background: var(--forest); border-radius: 2px; transition: width .6s ease; }
+.bd-example { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-other, .bd-empty { margin: 0; font-size: 13px; color: var(--muted); }
 
 /* ---------- Metrics ---------- */
 .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -282,7 +287,6 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 48px; }
   .catch-main .seal { display: none; }
   .catch-detail { padding: 0 14px 16px; }
   .section-head { flex-direction: column; align-items: flex-start; }
-  .bd-row { grid-template-columns: 100px 1fr 40px; }
 }
 
 /* ================= Team-lead revision ================= */

@@ -326,8 +326,8 @@ function timeAgo(d) {
 }
 const level = s => s >= .9 ? 'high' : s >= .75 ? 'mid' : 'low';
 const CAT = {
-  toll: { label: 'Toll', icon: '🚗' }, delivery: { label: 'Delivery', icon: '📦' },
-  gov: { label: 'Government', icon: '🏛️' }, other: { label: 'Other', icon: '❔' },
+  toll: { label: 'Toll' }, delivery: { label: 'Delivery' },
+  gov: { label: 'Government' }, other: { label: 'Other' },
 };
 
 // =================================================================
@@ -399,9 +399,7 @@ async function loadDashboard() {
     ? `Plus ${fmt(knownCount)} already on known lists`
     : 'Not yet on any public blocklist';
 
-  const categories = {};
-  list.forEach(a => categories[a.category] = (categories[a.category] || 0) + 1);
-  renderBreakdown(categories);
+  renderBreakdown(await loadBreakdown(), !!alertsRaw);
 
   // ---- Accuracy: real results or "Evaluation running…" ----
   renderResults(resultsRaw, leadRaw);
@@ -413,22 +411,57 @@ async function loadDashboard() {
   else { renderCpacf(SAMPLE.cpacf); setSim('cpacf', true); }
 }
 
-function renderBreakdown(cats) {
+// Scam types in the last 24 h. Its own query (the alerts list above is only the newest 100), each
+// site counted once. Only toll / delivery / gov get a row; "other" (generic phishing, almost all
+// already on public lists) is one quiet line so it can't drown the three that matter.
+const BREAKDOWN_HOURS = 24;
+async function loadBreakdown() {
+  try {
+    const since = Math.floor(Date.now() / 1000) - BREAKDOWN_HOURS * 3600;
+    const r = await fetch(`${CONFIG.API_BASE}${CONFIG.ENDPOINTS.alerts}?since=${since}&limit=1000`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return data?.source === 'live' ? normalizeAlerts(data) : null;
+  } catch { return null; }
+}
+
+function renderBreakdown(list, reached) {
   const box = $('#breakdown');
   box.replaceChildren();
-  const rows = ['toll', 'delivery', 'gov'].map(k => [k, cats[k] || 0]);   // no "other" tile
-  const max = Math.max(1, ...rows.map(r => r[1]));
-  rows.forEach(([k, v]) => {
-    const meta = CAT[k] || CAT.other;
+  if (!list) {
+    box.append(el('p', 'bd-empty', reached ? 'No scam sites in the last 24 hours yet.' : 'Waiting for the live API…'));
+    return;
+  }
+  const bySite = new Map();                         // newest first: keep each site's newest alert
+  for (const a of list) {
+    const site = registeredSite(String(a.domain ?? '').toLowerCase());
+    if (site && !bySite.has(site)) bySite.set(site, a);
+  }
+  const groups = { toll: [], delivery: [], gov: [], other: [] };
+  for (const a of bySite.values()) (groups[a.category] || groups.other).push(a);
+  const keys = ['toll', 'delivery', 'gov'];
+  const total = keys.reduce((n, k) => n + groups[k].length, 0);
+  const max = Math.max(1, ...keys.map(k => groups[k].length));
+
+  const head = el('div', 'bd-total');
+  head.append(el('span', 'bd-total-num', fmt(total)),
+              el('span', 'bd-total-label', `toll, delivery & government scam sites caught in the last\u00a0${BREAKDOWN_HOURS}\u00a0hours`));
+  box.append(head);
+
+  for (const k of keys) {
     const row = el('div', 'bd-row');
-    const name = el('div', 'bd-name');
-    name.append(el('span', 'bd-icon', meta.icon), el('span', null, meta.label));
+    const top = el('div', 'bd-top');
+    top.append(el('span', 'bd-name', CAT[k].label), el('span', 'bd-num', fmt(groups[k].length)));
     const track = el('div', 'bd-track');
-    const fill = el('div', 'bd-fill'); fill.style.width = (v / max * 100) + '%';
+    const fill = el('div', 'bd-fill'); fill.style.width = (groups[k].length / max * 100) + '%';
     track.append(fill);
-    row.append(name, track, el('div', 'bd-num', fmt(v)));
+    const ex = groups[k][0];
+    row.append(top, track, el('div', 'bd-example', ex ? String(ex.domain) : 'none yet'));   // plain text, never a link
     box.append(row);
-  });
+  }
+  if (groups.other.length) {
+    box.append(el('p', 'bd-other', `+ ${fmt(groups.other.length)} other phishing sites, mostly already on public blocklists`));
+  }
 }
 
 function renderResults(raw, lead) {
