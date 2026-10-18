@@ -1,0 +1,576 @@
+<title>Scamouflage Demo Site</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one column of full-bleed bands; text sits in a 1200px measure, the certificate stream runs edge to edge. */
+:root{
+  color-scheme: light;
+  --paper:#F6F4EE;      /* page ground, the site's existing cream */
+  --paper-2:#FBF9F4;    /* receipt paper */
+  --sand:#F4E7CF;       /* evidence chips, new-row flash */
+  --line:#E2DED4;       /* lane dashes, dividers */
+  --ink:#22382C;        /* text, deep green */
+  --ink-2:#4A5A50;      /* secondary text */
+  --green:#2C4A3A;      /* sign plates, primary */
+  --night:#18211C;      /* the stream band, high contrast */
+  --night-2:#2A3A31;
+  --sage:#7FA27A;       /* live dot, IBM bar */
+  --rust:#A8432F;       /* scam scores only */
+  --amber:#9A6A12;      /* 75-89 scores */
+  --font-display:"Overpass","Arial Narrow",system-ui,sans-serif;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-domain:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{background:var(--paper)}
+body{color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1200px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--font-display);font-weight:800;letter-spacing:-.025em;line-height:1.02;text-wrap:balance;margin:0}
+p{margin:0}
+a{color:var(--green)}
+:focus-visible{outline:3px solid var(--sage);outline-offset:2px;border-radius:3px}
+.num{font-variant-numeric:tabular-nums}
+.domain{font-family:var(--font-domain);font-weight:600;overflow-wrap:anywhere}
+
+/* header */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--paper)}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:color-mix(in srgb,var(--paper) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-block:14px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink)}
+.brand .plate{width:36px;height:36px;border-radius:6px;background:var(--green);box-shadow:inset 0 0 0 2px var(--paper),0 0 0 2px var(--green);display:grid;place-items:center}
+.brand span{font-family:var(--font-display);font-weight:800;font-size:21px;letter-spacing:-.01em}
+nav.tabs{display:flex;flex-wrap:wrap;align-items:center;gap:4px 22px;font-weight:500;font-size:15px}
+nav.tabs a{color:var(--ink-2);text-decoration:none;padding:8px 0;border-bottom:3px solid transparent}
+nav.tabs a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--green)}
+.live{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:14px}
+.live i{width:9px;height:9px;border-radius:50%;background:var(--sage);display:inline-block;animation:blink 2s ease-in-out infinite}
+.demo-note{font-size:12px;color:var(--ink-2);border:1px solid var(--line);border-radius:4px;padding:2px 7px}
+@keyframes blink{50%{opacity:.35}}
+
+main section{padding-block:72px}
+.lane{height:4px;background:repeating-linear-gradient(90deg,var(--line) 0 40px,transparent 40px 64px)}
+.lead{font-size:19px;color:var(--ink-2);max-width:58ch}
+
+/* hero */
+.hero{padding-block:64px 36px}
+.hero h1{font-size:clamp(44px,7vw,96px);max-width:14ch}
+.hero .lead{margin-top:26px}
+
+/* stream band */
+.stream{position:relative;background:var(--night);overflow:hidden;height:300px;color:#6F7C74}
+.stream .row{position:absolute;left:0;white-space:nowrap;font-family:var(--font-domain);font-size:17px;display:flex;gap:56px;will-change:transform}
+.stream .row span{filter:blur(1.4px);transition:filter .4s,color .4s,opacity .4s}
+.stream .row span.hot{filter:none;color:var(--rust);font-weight:600;text-shadow:0 0 6px rgba(168,67,47,.9),0 0 18px rgba(168,67,47,.6);animation:neon 2.4s ease-in-out infinite}
+@keyframes neon{0%,100%{opacity:1}50%{opacity:.72}}
+.stream .r1{top:62px;animation:drift 42s linear infinite}
+.stream .r2{top:138px;animation:drift 55s linear infinite reverse;color:#56635B}
+.stream .r3{top:214px;animation:drift 48s linear infinite}
+@keyframes drift{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.catch{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(.92);opacity:0;display:flex;align-items:stretch;gap:12px;transition:opacity .45s ease,transform .45s cubic-bezier(.2,.8,.2,1);pointer-events:none;max-width:calc(100% - 32px)}
+.catch.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.catch .sign{background:var(--green);color:#F6F4EE;border:3px solid #F6F4EE;outline:4px solid var(--green);border-radius:8px;padding:16px 16px 16px 26px;display:flex;align-items:center;gap:24px;min-width:0;box-shadow:0 22px 50px rgba(0,0,0,.5)}
+.catch .sign-text{display:flex;flex-direction:column;gap:4px;min-width:0}
+.catch .sign small{font-size:13px;color:#CFE0D4}
+.catch .sign .domain{font-size:clamp(20px,3.2vw,34px);color:#fff}
+.catch .sign em{font-style:normal;font-size:15px;color:#E4EEE7}
+.catch .score{background:var(--rust);color:#fff;border-radius:6px;width:92px;align-self:stretch;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-block:8px}
+.catch .score b{font-family:var(--font-display);font-size:42px;line-height:1}
+.catch .score span{font-size:12px}
+.stream-caption{display:flex;flex-wrap:wrap;gap:6px 24px;padding-block:14px;font-size:14px;color:var(--ink-2)}
+
+/* funnel */
+.funnel{display:flex;flex-direction:column;gap:30px;margin-top:44px}
+.step .head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+.step .big{font-family:var(--font-display);font-weight:800;font-size:clamp(38px,5vw,56px);letter-spacing:-.02em;line-height:1}
+.step .head span:last-child{font-size:18px;color:var(--ink-2)}
+.road{height:32px;border-radius:4px;margin-top:10px;transform-origin:left;background-image:repeating-linear-gradient(90deg,transparent 0 46px,var(--paper) 46px 70px);background-size:100% 3px;background-repeat:no-repeat;background-position:center}
+.road.grow{animation:grow 1.3s cubic-bezier(.2,.7,.2,1) both}
+@keyframes grow{from{transform:scaleX(0)}}
+.fine{font-size:13px;color:var(--ink-2)}
+.fbar{height:14px;border-radius:7px;margin-top:12px;transform-origin:left}
+.fbar.grow{animation:grow 1.3s cubic-bezier(.2,.7,.2,1) both}
+.ratio{display:block;margin-top:8px;font-size:14px;color:var(--ink-2)}
+
+/* brands */
+.split{display:flex;flex-wrap:wrap;gap:40px 64px}
+.split > *{min-width:0}
+.bars{flex:2 1 480px;display:flex;flex-direction:column;gap:24px}
+.bar-row .label{display:flex;justify-content:space-between;font-weight:600;font-size:18px}
+.bar-row .label b{font-family:var(--font-display);font-size:22px}
+.track{height:12px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0 6px}
+.track i{display:block;height:100%;background:var(--green);border-radius:3px;transition:width .8s cubic-bezier(.2,.7,.2,1)}
+
+/* results: one hero tile + four supporting tiles, then a plain comparison table */
+.results{padding-block:96px;background:var(--paper)}
+.results h2{font-size:clamp(32px,4vw,52px)}
+.bento{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:40px}
+.tile{background:#EEF0E8;border-radius:14px;padding:26px 24px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tile-hero{grid-column:span 2;grid-row:span 2;background:var(--ink);color:#F6F4EE;padding:36px 34px;justify-content:flex-end}
+.tile-n{font-family:var(--font-display);font-weight:800;font-size:clamp(36px,3.6vw,48px);letter-spacing:-.03em;line-height:1;color:var(--ink)}
+.tile-n small{font-size:.55em;margin-left:2px}
+.tile-hero .tile-n{font-size:clamp(72px,9vw,128px);color:#fff;letter-spacing:-.05em}
+.tile-hero .tile-n small{color:#C69B4E}
+.tile-l{font-weight:600;font-size:17px;color:var(--ink);margin-top:6px}
+.tile-hero .tile-l{font-size:22px;color:#fff;max-width:22ch}
+.tile-s{font-size:14px;color:var(--ink-2)}
+.tile-hero .tile-s{font-size:15px;color:#B9C6BD;max-width:44ch;margin-top:4px}
+.vs-table{margin-top:40px;font-size:16px}
+.vs-cap{font-size:15px;color:var(--ink-2);margin-bottom:10px}
+.vs-tr{display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;padding:14px 16px;border-radius:8px;align-items:center}
+.vs-th{font-size:14px;color:var(--ink-2);padding-block:6px}
+.vs-us{background:#E3E9DD;font-weight:700}
+.vs-tr span:not(:first-child){font-variant-numeric:tabular-nums}
+.results.go .tile{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
+.results.go .tile:nth-child(2){animation-delay:.08s}.results.go .tile:nth-child(3){animation-delay:.16s}.results.go .tile:nth-child(4){animation-delay:.24s}.results.go .tile:nth-child(5){animation-delay:.32s}
+@keyframes rise{from{opacity:.0;transform:translateY(14px)}}
+@media (max-width:900px){.bento{grid-template-columns:repeat(2,minmax(0,1fr))}.tile-hero{grid-row:auto}}
+@media (max-width:520px){.bento{grid-template-columns:minmax(0,1fr)}.tile-hero{grid-column:auto}.vs-tr{grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));font-size:14px;padding-inline:8px}}
+
+/* IBM */
+.ibm{background:var(--night);color:#E9EEE9}
+.ibm .lead{color:#B9C6BD}
+.chip-pin{animation:pin 1.2s ease-in-out infinite}
+@keyframes pin{0%,100%{opacity:.3}50%{opacity:1}}
+.race{display:flex;flex-direction:column;gap:18px;margin-top:32px}
+.race .label{display:flex;justify-content:space-between;font-size:16px;margin-bottom:8px}
+.race .label b{font-family:var(--font-display)}
+.race .lane-bg{height:22px;background:var(--night-2);border-radius:3px;overflow:hidden}
+.race .lane-bg i{display:block;height:100%;border-radius:3px;transform-origin:left}
+.speedups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 28px;margin-top:26px;color:#B9C6BD;font-size:15px}
+.speedups strong{display:block;font-family:var(--font-display);font-size:28px;color:#fff}
+.speedups .muted strong{color:#8D9A92}
+.ibm h3{font-family:var(--font-display);font-size:34px;color:var(--sage);margin-top:28px}
+
+/* trust */
+.trust{display:flex;flex-wrap:wrap;gap:32px 56px}
+.trust > div{flex:1 1 280px;display:flex;gap:14px;align-items:flex-start;font-size:17px}
+
+/* catches */
+.catches-layout{display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start}
+.catches-intro{flex:1 1 300px;min-width:0}
+.catches-intro h1{font-size:clamp(40px,5vw,64px)}
+.roll{flex:1.6 1 560px;min-width:0;max-width:740px}
+.perf{height:14px;background:radial-gradient(circle at 10px -2px,var(--paper) 9px,var(--paper-2) 9.5px) 0 0/20px 14px repeat-x}
+.paper{background:var(--paper-2);padding:12px 28px 28px;box-shadow:0 1px 0 var(--line)}
+.roll-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 16px;padding:18px 0 12px;border-bottom:2px dashed var(--line)}
+.roll-head b{font-family:var(--font-display);font-size:20px}
+.roll-head span{font-size:14px;color:var(--ink-2)}
+.item{border-bottom:2px dashed var(--line)}
+.item.fresh{animation:fresh 3s ease-out}
+@keyframes fresh{from{background:var(--sand)}to{background:transparent}}
+.item > button{width:100%;min-height:62px;display:grid;grid-template-columns:70px minmax(0,1fr) auto 50px;gap:14px;align-items:center;padding:12px 0;border:0;background:transparent;text-align:left;cursor:pointer;color:var(--ink);font:inherit}
+.item .when{font-size:14px;color:var(--ink-2)}
+.item .domain{font-size:17px}
+.stamp{font-family:var(--font-display);font-weight:800;font-size:12px;letter-spacing:.08em;border:2px solid currentColor;border-radius:3px;padding:3px 7px;transform:rotate(-4deg);white-space:nowrap}
+.stamp.toll{color:#6A4A1F}.stamp.delivery{color:var(--green)}.stamp.gov{color:#5B3E6E}
+.score-n{font-family:var(--font-display);font-weight:800;font-size:24px;text-align:right}
+.score-n.hi{color:var(--rust)}.score-n.mid{color:var(--amber)}
+.why{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s ease}
+.item.open .why{grid-template-rows:1fr}
+.why > div{overflow:hidden}
+.why ul{list-style:none;margin:0;padding:0 0 18px 84px;display:flex;flex-direction:column;gap:6px;font-size:16px}
+.why li{background:var(--sand);border-radius:4px;padding:6px 10px;width:fit-content;max-width:100%}
+.known-row{display:grid;grid-template-columns:70px minmax(0,1fr) auto;gap:14px;padding:12px 0;border-bottom:2px dashed var(--line);color:var(--ink-2);font-size:15px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 20px;border-radius:6px;font:600 15px var(--font-body);cursor:pointer;text-decoration:none}
+.btn-line{border:2px solid var(--ink);background:transparent;color:var(--ink)}
+.btn-solid{border:0;background:var(--green);color:var(--paper)}
+
+/* extension */
+.ext{display:flex;flex-wrap:wrap;gap:56px;align-items:center}
+.ext > *{min-width:0}
+.ext h1{font-size:clamp(40px,5.4vw,72px);max-width:12ch}
+.ext ol{margin:26px 0;padding-left:22px;display:flex;flex-direction:column;gap:8px;font-size:17px}
+.browser{border-radius:12px;overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 60px rgba(34,56,44,.18)}
+.browser .bar{background:#ECE8DF;padding:12px 16px;display:flex;gap:12px;align-items:center}
+.browser .bar i{width:11px;height:11px;border-radius:50%;background:#CFC9BC;display:inline-block}
+.browser .url{flex:1;background:var(--paper-2);border-radius:6px;padding:7px 12px;font-family:var(--font-domain);font-size:14px;color:var(--rust);overflow-wrap:anywhere}
+.warn{background:var(--rust);color:#FFF7F2;padding:40px}
+.warn h2{font-size:40px;margin:16px 0 10px}
+.warn p{color:#FBE8E1;font-size:18px;max-width:46ch}
+.warn .reasons{background:rgba(255,247,242,.13);border-radius:8px;padding:14px 18px;margin-top:20px;font-size:16px;line-height:1.75}
+.warn .actions{display:flex;flex-wrap:wrap;align-items:center;gap:20px;margin-top:26px}
+.warn .actions button{min-height:48px;padding:0 24px;border:0;border-radius:6px;background:#FFF7F2;color:var(--rust);font:700 16px var(--font-body);cursor:pointer}
+.warn .actions a{color:#FBE8E1}
+
+footer{border-top:1px solid var(--line);padding-block:26px;font-size:14px;color:var(--ink-2)}
+
+@media (max-width:640px){
+  .stream{height:260px}
+  .item > button{grid-template-columns:54px minmax(0,1fr) 40px}
+  .item .stamp{display:none}
+  .why ul{padding-left:0}
+  .speedups{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .catch .score{width:72px}.catch .score b{font-size:32px}
+}
+@media (prefers-reduced-motion:reduce){
+  .stream .row,.stream .row span.hot,.live i,.chip-pin,.road.grow,.item.fresh{animation:none!important}
+  .catch,.why,.track i{transition:none}
+}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#live" aria-label="Scamouflage home">
+      <span class="plate"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F6F4EE" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 15c0-5 4-9 9-9 4 0 7 3 7 6s-2 5-5 5c-2 0-3-1-3-3 0-1 1-2 2-2"/><circle cx="16" cy="9.5" r="1.2" fill="#F6F4EE"/><path d="M4 19h12"/></svg></span>
+      <span>Scamouflage</span>
+    </a>
+    <nav class="tabs" aria-label="Pages">
+      <a href="#live" data-tab="live">Live</a>
+      <a href="#catches" data-tab="catches">Latest catches</a>
+      <a href="#extension" data-tab="extension">Get the extension</a>
+      <span class="demo-note">Demo, sample data</span>
+    </nav>
+  </div>
+</header>
+
+<main>
+<!-- ============ LIVE ============ -->
+<div id="page-live" data-page="live">
+  <div class="wrap hero">
+    <h1>Scam sites need a certificate. We read every one.</h1>
+    <p class="lead">Every new website gets a public security certificate before it goes live. Scamouflage checks each one as it appears and flags fake toll, delivery and government sites before the first scam text goes out.</p>
+  </div>
+
+  <div class="stream" aria-label="Live certificate stream" role="img">
+    <div class="row r1" id="r1"></div>
+    <div class="row r2" id="r2"></div>
+    <div class="row r3" id="r3"></div>
+    <div class="catch" id="catch" aria-live="polite">
+      <div class="sign">
+        <div class="sign-text">
+          <small id="catchWhen">Caught just now, not on any blocklist</small>
+          <span class="domain" id="catchDomain">dhlove.online</span>
+          <em id="catchWhy">Pretends to be DHL. Registered 6 months ago.</em>
+        </div>
+        <div class="score"><b id="catchScore">93</b><span>scam score</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap stream-caption">
+    <span><b class="num" id="cps">753</b> new certificates a second</span>
+    <span>checked in <b class="num">0.17 ms</b> each</span>
+    <span><b class="num" id="certTotal">1,395,282</b> checked since we started</span>
+  </div>
+
+  <section class="wrap" aria-labelledby="funnel-h">
+    <h2 id="funnel-h" style="font-size:clamp(32px,4vw,52px)">26 minutes of the internet, filtered down to the scams</h2>
+    <p class="lead" style="margin-top:12px">A real 26-minute recording of the live certificate stream, run through the same engine that is running now.</p>
+    <div class="funnel" id="funnel">
+      <div class="step">
+        <div class="head"><span class="big num" data-count="1359910">1,359,910</span><span>new website names appeared.</span></div>
+        <div class="fbar" style="width:100%;background:#8A9A8F"></div>
+        <span class="ratio">every new site</span>
+      </div>
+      <div class="step">
+        <div class="head"><span class="big num" data-count="503">503</span><span>used the name of a toll agency, a delivery company or a government office.</span></div>
+        <div class="fbar" style="width:46%;background:var(--ink)"></div>
+        <span class="ratio">1 in 2,700 sites. The rest are skipped in 0.17 ms.</span>
+      </div>
+      <div class="step">
+        <div class="head"><span class="big num" data-count="87" style="color:var(--rust)">87</span><span>were scored as scams by the model. None were on any blocklist yet.</span></div>
+        <div class="fbar" style="width:14%;min-width:64px;background:var(--rust)"></div>
+        <span class="ratio">1 in 15,600 new sites</span>
+      </div>
+    </div>
+    <p class="lead" style="font-size:18px;margin-top:36px">Each one is then checked against the domain registry, signed on the IBM chip, and sent to every installed extension.</p>
+    <p class="fine" style="margin-top:14px">Bar widths use a log scale so the smallest step stays visible.</p>
+  </section>
+
+  <div class="wrap"><div class="lane" aria-hidden="true"></div></div>
+
+  <section class="results" id="report" aria-labelledby="acc-h">
+    <div class="wrap">
+      <h2 id="acc-h">How accurate is it?</h2>
+      <p class="lead" style="margin-top:10px">Tested on 107,574 websites the model never saw during training.</p>
+
+      <div class="bento">
+        <div class="tile tile-hero">
+          <b class="tile-n"><span class="num" data-count="99.8" data-dec="1">99.8</span><small>%</small></b>
+          <span class="tile-l">of fake toll, delivery and government sites caught</span>
+          <span class="tile-s">413 of 414 test scams. 368 from the web address alone, 45 more on a second check of how new the site is.</span>
+        </div>
+        <div class="tile">
+          <b class="tile-n"><span class="num" data-count="99">99</span><small>%</small></b>
+          <span class="tile-l">right when it warns</span>
+          <span class="tile-s">98.9% of its alarms are real scams</span>
+        </div>
+        <div class="tile">
+          <b class="tile-n"><span class="num" data-count="0.5" data-dec="1">0.5</span></b>
+          <span class="tile-l">false alarms per 10,000 real sites</span>
+          <span class="tile-s">a brand-word filter makes 4.7</span>
+        </div>
+        <div class="tile">
+          <b class="tile-n"><span class="num" data-count="11485">11,485</span></b>
+          <span class="tile-l">sites checked per second</span>
+          <span class="tile-s">on IBM LinuxONE</span>
+        </div>
+        <div class="tile">
+          <b class="tile-n"><span class="num" data-count="432589">432,589</span></b>
+          <span class="tile-l">real websites studied</span>
+          <span class="tile-s">trained in under two minutes with IBM Snap ML</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="ibm" aria-labelledby="ibm-h">
+    <div class="wrap split" style="align-items:center">
+      <div style="flex:1 1 340px;display:flex;justify-content:center">
+        <svg viewBox="0 0 320 320" width="340" style="max-width:100%" role="img" aria-label="IBM z17 chip, pins pulsing with live signature checks">
+          <g stroke="#9FB8AA" stroke-width="5" stroke-linecap="round" id="pins"></g>
+          <rect x="60" y="60" width="200" height="200" rx="14" fill="#101813" stroke="#3E5A4C" stroke-width="3"/>
+          <rect x="88" y="88" width="144" height="144" rx="8" fill="none" stroke="#2F4A3D" stroke-width="2"/>
+          <text x="160" y="128" text-anchor="middle" fill="#9FB8AA" font-family="Overpass, sans-serif" font-weight="700" font-size="15" letter-spacing="3">IBM z17</text>
+          <text x="160" y="178" text-anchor="middle" fill="#F6F4EE" font-family="Overpass, sans-serif" font-weight="800" font-size="44" id="chipRate">259</text>
+          <text x="160" y="202" text-anchor="middle" fill="#9FB8AA" font-family="IBM Plex Sans, sans-serif" font-size="12">signature checks / s</text>
+        </svg>
+      </div>
+      <div style="flex:1.3 1 460px">
+        <h2 id="ibm-h" style="font-size:40px">Every certificate runs through IBM's crypto chip</h2>
+        <p class="lead" style="margin-top:14px;font-size:18px">Same code and the same certificates, run twice on our IBM z17. The only change is whether OpenSSL may use the chip.</p>
+        <div class="race">
+          <div><div class="label"><span>With the IBM chip</span><b class="num">4,386 / s</b></div><div class="lane-bg"><i class="road grow" style="width:100%;background:var(--sage);height:100%;margin:0"></i></div></div>
+          <div><div class="label"><span>Software only</span><b class="num">1,010 / s</b></div><div class="lane-bg"><i class="road grow" style="width:23%;background:#7C878C;height:100%;margin:0;animation-delay:.2s"></i></div></div>
+        </div>
+        <h3>4.3× faster checking real certificates</h3>
+        <div class="speedups">
+          <div><strong>16.5×</strong>SHA-256 hashing</div>
+          <div><strong>7.2×</strong>ECDSA P-384 checks</div>
+          <div><strong>6.5×</strong>certificate fingerprints</div>
+          <div><strong>5.0×</strong>ECDSA P-256 checks</div>
+          <div><strong>2.0×</strong>signing our alerts</div>
+          <div class="muted"><strong>1.0×</strong>RSA, not accelerated</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap trust" aria-label="How we protect you">
+    <div><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2C4A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg><p><b>Every alert is signed.</b> Ed25519 on the IBM chip, so an edited or forged alert fails the check.</p></div>
+    <div><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2C4A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><p><b>Your browsing stays yours.</b> The extension checks each site on your own device. Nothing you visit is sent to us.</p></div>
+    <div><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2C4A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg><p><b>We never open scam sites.</b> Only public certificate data. Domains are plain text, never links.</p></div>
+  </section>
+</div>
+
+<!-- ============ CATCHES ============ -->
+<div id="page-catches" data-page="catches" hidden>
+  <section class="wrap catches-layout">
+    <div class="catches-intro">
+      <h1>The 15 newest scam sites</h1>
+      <p class="lead" style="margin-top:18px;font-size:18px;max-width:36ch">Fake toll, delivery and government sites, newest first. Tap one to see why it was flagged. We never open these sites, so you never have to.</p>
+      <button class="btn btn-line" id="refresh" style="margin-top:24px">Check for new ones</button>
+      <p class="fine" style="margin-top:24px;line-height:1.7">Score 90 to 100: almost certainly a scam.<br>75 to 89: very suspicious.</p>
+    </div>
+    <div class="roll">
+      <div class="perf" aria-hidden="true"></div>
+      <div class="paper">
+        <div class="roll-head"><b>New catches</b><span>not on any blocklist when we flagged them</span></div>
+        <div id="list"></div>
+        <div class="roll-head" style="margin-top:18px"><b>Already known</b><span>on a blocklist before we saw the certificate</span></div>
+        <div id="known"></div>
+        <p class="fine" style="margin-top:20px">Each alert is signed on IBM's crypto chip. Domains are plain text, never links.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============ EXTENSION ============ -->
+<div id="page-extension" data-page="extension" hidden>
+  <section class="wrap ext">
+    <div style="flex:1 1 360px">
+      <h1>Stop before you pay a fake toll.</h1>
+      <p class="lead" style="margin-top:20px">Tap a link in a "you owe a toll" text and Scamouflage steps in with a full-page warning, before the payment form loads.</p>
+      <ol>
+        <li>Download the extension folder from our project.</li>
+        <li>Open chrome://extensions and turn on Developer mode.</li>
+        <li>Click Load unpacked and choose the folder.</li>
+      </ol>
+      <span class="btn btn-solid" role="note">Download link goes here</span>
+      <p class="fine" style="margin-top:22px;max-width:46ch;font-size:15px">It checks each site on your own device against a signed list. Nothing you browse is sent anywhere.</p>
+    </div>
+    <div style="flex:1.2 1 500px">
+      <div class="browser">
+        <div class="bar"><span aria-hidden="true" style="display:flex;gap:6px"><i></i><i></i><i></i></span><span class="url">ezpass.com-pay-xk2.win</span></div>
+        <div class="warn">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#FFF7F2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="#FFF7F2"/></svg>
+          <h2>This is not E-ZPass.</h2>
+          <p>This site was created a few hours ago and copies the E-ZPass name. Real toll agencies never ask you to pay through a link in a text.</p>
+          <div class="reasons">"ezpass" sits in front of a different website<br>Cheap .win address, common in scam texts<br>Same pattern as a known scam campaign</div>
+          <div class="actions"><button type="button">Take me back to safety</button><a href="#extension">I understand the risk, continue</a></div>
+        </div>
+      </div>
+      <p class="fine" style="margin-top:14px">What you see if you open a flagged site. The demo uses a harmless test page, never a real scam site.</p>
+    </div>
+  </section>
+</div>
+</main>
+
+<footer><div class="wrap">Built for the IBM Z Datathon 2026. Everything runs on one IBM LinuxONE server. This demo uses sample values.</div></footer>
+
+<script>
+(() => {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fmt = n => n.toLocaleString('en-US');
+
+  /* ---------- sample data ---------- */
+  const NORMAL = ['cdn.apps.ai-super-app.ru','xpn.lopezcabo.es','mail.harborfreight-outlet.net','app-98f73da.internal.dev','shop.lunabakery.co','id.ui.direct','static.edge-cache-17.io','portal.northwind.org','api.weatherkit.app','m.clinic-reviews.com','vpn.campus-west.edu','builds.pipeline-42.cloud','blog.tinyhouse.life','dash.metrics-eu.net','files.cabin-rentals.us','status.paystream.io','img.recipebox.kitchen','auth.fleetmanager.co','beta.studyhall.app','grafana.ops-west.org'];
+  const SCAMS = [
+    {d:'dmvrepresentacoes.click',c:'gov',s:95,w:['Pretends to be the DMV.','Registered 177 days ago via NameSilo, a registrar Unit 42 links to smishing gangs.','Name model score 0.95.'],short:'Pretends to be the DMV. Registered via a high-risk registrar.'},
+    {d:'dhlove.online',c:'delivery',s:93,w:['Pretends to be DHL.','Registered 179 days ago via iNET Software Company.','Name model score 0.93.'],short:'Pretends to be DHL. Registered 6 months ago.'},
+    {d:'fedexmicromaxamdama.pages.dev',c:'delivery',s:92,w:['Pretends to be FedEx.','On a shared hosting platform with no registry record of its own, so it was flagged on the name.'],short:'Pretends to be FedEx, on a free hosting platform.'},
+    {d:'irsan-patterns.info',c:'gov',s:94,w:['Pretends to be the IRS.','Registered 55 days ago via Unstoppable Domains.'],short:'Pretends to be the IRS. Registered 55 days ago.'},
+    {d:'uvs.dmv.mybluehost.me',c:'gov',s:91,w:['Pretends to be the DMV.','Its certificate also covers 8 other lookalike names.'],short:'DMV lookalike. Same certificate covers 8 more.'},
+    {d:'parcelstamfw.bond',c:'delivery',s:88,w:['Uses the word "parcel" with a cheap .bond address.','Registered 6 months ago via Gname, a registrar Unit 42 links to smishing gangs.'],short:'"Parcel" lure on a cheap .bond address.'},
+    {d:'teroparcel.store',c:'delivery',s:99,w:['Uses the word "parcel".','Registered 4 hours ago via GoDaddy.'],short:'Parcel lure. Registered 4 hours ago.'},
+    {d:'pay-dhl.icu',c:'delivery',s:97,w:['Pretends to be DHL and asks for payment.','Cheap .icu address, common in scam texts.'],short:'Fake DHL payment page on a .icu address.'},
+    {d:'usps-parcel-tracking-support.com',c:'delivery',s:99,w:['Pretends to be USPS.','Three lure words: parcel, tracking, support.'],short:'Pretends to be USPS tracking support.'},
+    {d:'epayments-dhl.com',c:'delivery',s:98,w:['Pretends to be DHL payments.','Registered 7 hours ago.'],short:'Fake DHL payments. Registered 7 hours ago.'},
+    {d:'dmv-aasf.bond',c:'gov',s:97,w:['Pretends to be the DMV.','Cheap .bond address.'],short:'Pretends to be the DMV on a .bond address.'},
+    {d:'82hhjh.wishmepass.tk',c:'toll',s:90,w:['Looks like a toll pass site.','Free .tk address, common in scam texts.'],short:'Toll pass lookalike on a free .tk address.'},
+    {d:'ezpass-toll-pay.win',c:'toll',s:96,w:['Pretends to be E-ZPass.','Cheap .win address. Registered 2 hours ago.'],short:'Pretends to be E-ZPass. Registered 2 hours ago.'},
+    {d:'sunpass.com-invoice.vip',c:'toll',s:98,w:['Pretends to be SunPass.','Uses the fake ".com-" trick from known scam kits.'],short:'Fake SunPass invoice using the ".com-" trick.'},
+    {d:'txtag-violation-pay.cfd',c:'toll',s:94,w:['Pretends to be TxTag.','Lure words: violation, pay.'],short:'Fake TxTag violation notice.'}
+  ];
+  const KNOWN = [['3 min','usps-redelivery-help.top','delivery'],['11 min','ezpass.com-pay-tolls.win','toll'],['18 min','irs-refund-claim.site','gov']];
+  const CAT = {toll:'Toll',delivery:'Delivery',gov:'Government'};
+
+  /* ---------- tabs ---------- */
+  const pages = [...document.querySelectorAll('[data-page]')];
+  const tabs = [...document.querySelectorAll('[data-tab]')];
+  function show(name){
+    if(!pages.some(p => p.dataset.page === name)) name = 'live';
+    pages.forEach(p => p.hidden = p.dataset.page !== name);
+    tabs.forEach(t => t.dataset.tab === name ? t.setAttribute('aria-current','page') : t.removeAttribute('aria-current'));
+    window.scrollTo(0,0);
+  }
+  // handle tab clicks directly (the viewer frame doesn't always pass hash changes through)
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href^="#"]');
+    if(!a) return;
+    const name = a.getAttribute('href').slice(1);
+    if(!pages.some(p => p.dataset.page === name)) return;
+    e.preventDefault();
+    show(name);
+    try { history.replaceState(null, '', '#' + name); } catch(_) {}
+  });
+  addEventListener('hashchange', () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || 'live');
+
+  /* ---------- stream ---------- */
+  const rows = ['r1','r2','r3'].map(id => document.getElementById(id));
+  rows.forEach((row,i) => {
+    const pick = NORMAL.slice(i*5).concat(NORMAL.slice(0,i*5));
+    // every 5th name is a scam from the list, shown sharp in neon red
+    const out = [];
+    pick.forEach((n,j) => {
+      out.push('<span>'+n+'</span>');
+      if(j % 5 === 3) out.push('<span class="hot">'+SCAMS[(i*4 + (j>>2)) % SCAMS.length].d+'</span>');
+    });
+    const html = out.join('');
+    row.innerHTML = html + html;   // doubled so the loop is seamless
+  });
+  const box = document.getElementById('catch');
+  let k = 0;
+  function nextCatch(){
+    const s = SCAMS[k++ % SCAMS.length];
+    document.getElementById('catchDomain').textContent = s.d;
+    document.getElementById('catchWhy').textContent = s.short;
+    document.getElementById('catchScore').textContent = s.s;
+    document.getElementById('catchWhen').textContent = CAT[s.c] + ' scam, caught just now, not on any blocklist';
+    box.classList.add('show');
+    setTimeout(() => box.classList.remove('show'), reduce ? 6000 : 3800);
+  }
+  nextCatch();
+  setInterval(nextCatch, reduce ? 7000 : 5200);
+
+  /* ---------- ticking stats ---------- */
+  let total = 1395282;
+  setInterval(() => {
+    const cps = 700 + Math.round(Math.random()*110);
+    total += cps;
+    document.getElementById('cps').textContent = fmt(cps);
+    document.getElementById('certTotal').textContent = fmt(total);
+    document.getElementById('chipRate').textContent = 230 + Math.round(Math.random()*60);
+  }, 1000);
+
+  /* ---------- funnel: count up + roads grow when scrolled into view (final values are already shown at rest) ---------- */
+  const funnel = document.getElementById('funnel');
+  if(!reduce && 'IntersectionObserver' in window){
+    const io = new IntersectionObserver(es => {
+      if(!es[0].isIntersecting) return;
+      io.disconnect();
+      funnel.querySelectorAll('.fbar').forEach((r,i) => { r.style.animationDelay = (i*0.25)+'s'; r.classList.add('grow'); });
+      funnel.querySelectorAll('[data-count]').forEach(el => {
+        const end = +el.dataset.count, t0 = performance.now(), dur = 1300;
+        const tick = t => { const p = Math.min(1,(t-t0)/dur), e = 1-Math.pow(1-p,3); el.textContent = fmt(Math.round(end*e)); if(p<1) requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+    }, {threshold:.35});
+    io.observe(funnel);
+  }
+
+  /* ---------- results: numbers show at rest, count up once when scrolled to ---------- */
+  const report = document.getElementById('report');
+  if(!reduce && 'IntersectionObserver' in window){
+    const io2 = new IntersectionObserver(es => {
+      if(!es[0].isIntersecting) return;
+      io2.disconnect();
+      report.classList.add('go');
+      report.querySelectorAll('[data-count]').forEach(el => {
+        const end = parseFloat(el.dataset.count), dec = +(el.dataset.dec||0), t0 = performance.now(), dur = 1600;
+        const tick = t => { const p = Math.min(1,(t-t0)/dur), e = 1-Math.pow(1-p,4);
+          el.textContent = dec ? (end*e).toFixed(dec) : fmt(Math.round(end*e)); if(p<1) requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+    }, {threshold:.4});
+    io2.observe(report);
+  }
+
+  /* ---------- chip pins ---------- */
+  const pins = document.getElementById('pins'); let svg = '';
+  [90,125,160,195,230].forEach((p,i) => {
+    const d = ' style="animation-delay:'+(i*0.17)+'s"';
+    svg += '<line class="chip-pin"'+d+' x1="'+p+'" y1="20" x2="'+p+'" y2="56"/><line class="chip-pin"'+d+' x1="'+p+'" y1="264" x2="'+p+'" y2="300"/>';
+    svg += '<line class="chip-pin"'+d+' x1="20" y1="'+p+'" x2="56" y2="'+p+'"/><line class="chip-pin"'+d+' x1="264" y1="'+p+'" x2="300" y2="'+p+'"/>';
+  });
+  pins.innerHTML = svg;
+
+  /* ---------- latest catches ---------- */
+  let feed = SCAMS.slice(0,15).map((s,i) => ({...s, ago: i===0 ? 'just now' : (i*3+1)+' min'}));
+  let pool = 0, openId = feed[0].d;
+  const list = document.getElementById('list');
+  function esc(t){ return t.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
+  function drawList(freshD){
+    list.innerHTML = feed.map(s =>
+      '<div class="item'+(s.d===openId?' open':'')+(s.d===freshD?' fresh':'')+'" data-d="'+esc(s.d)+'">'+
+        '<button type="button" aria-expanded="'+(s.d===openId)+'">'+
+          '<span class="when">'+s.ago+'</span>'+
+          '<span class="domain">'+esc(s.d)+'</span>'+
+          '<span class="stamp '+s.c+'">'+CAT[s.c].toUpperCase()+'</span>'+
+          '<span class="score-n '+(s.s>=90?'hi':'mid')+' num">'+s.s+'</span>'+
+        '</button>'+
+        '<div class="why"><div><ul>'+s.w.map(x => '<li>'+esc(x)+'</li>').join('')+'</ul></div></div>'+
+      '</div>').join('');
+  }
+  list.addEventListener('click', e => {
+    const item = e.target.closest('.item'); if(!item) return;
+    openId = openId === item.dataset.d ? null : item.dataset.d;
+    list.querySelectorAll('.item').forEach(el => { const on = el.dataset.d === openId; el.classList.toggle('open', on); el.querySelector('button').setAttribute('aria-expanded', on); });
+  });
+  document.getElementById('known').innerHTML = KNOWN.map(([w,d,c]) =>
+    '<div class="known-row"><span>'+w+'</span><span class="domain" style="font-weight:500">'+d+'</span><span>'+CAT[c]+'</span></div>').join('');
+  drawList();
+
+  function addCatch(){
+    const base = SCAMS[pool++ % SCAMS.length];
+    const s = {...base, d: base.d.replace(/^([a-z0-9-]+)/, m => m + (pool > SCAMS.length ? '-' + pool : '')), ago:'just now'};
+    feed.forEach(f => { if(f.ago==='just now') f.ago='1 min'; else if(/min/.test(f.ago)) f.ago = (parseInt(f.ago)+1)+' min'; });
+    feed = [s, ...feed].slice(0,15);
+    drawList(s.d);
+  }
+  document.getElementById('refresh').onclick = addCatch;
+  setInterval(addCatch, 12000);
+})();
+</script>
