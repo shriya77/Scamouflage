@@ -29,7 +29,7 @@ alert into a takedown request to the company the domain was registered with:
    date, certificate SHA-256, issuer, CT log, first-seen time, crt.sh and RDAP
    links, the model's reasons and score, and the requested action
    (`clientHold`).
-4. The page shows To / Registrar / Subject / the full text with **Open in my
+4. A separate small window (`report.html`) shows To / Registrar / Subject / the full text with **Open in my
    mail app** (a `mailto:` link) and **Copy text**. The person sends it from
    their own address, in their own name. The server sends nothing on this route
    and logs nothing about who asked.

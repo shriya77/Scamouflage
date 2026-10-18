@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Report to the registrar: Scamouflage</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <!-- Opened in its own window by "Report this site" on the warning page.
+       Asks background.js for a drafted abuse e-mail to the site's registrar;
+       the person sends it from their own mail program. -->
+  <header class="head">
+    <img class="mark" src="icons/chameleon-green.png" alt="">
+    <div>
+      <h1>Report to the registrar</h1>
+      <p id="site" class="site mono"></p>
+    </div>
+  </header>
+
+  <main class="body">
+    <p id="status" class="status" aria-live="polite">Looking up who registered this site…</p>
+
+    <div id="ready" hidden>
+      <dl class="meta">
+        <dt>To</dt><dd id="to" class="mono"></dd>
+        <dt>Registrar</dt><dd id="registrar"></dd>
+        <dt>Subject</dt><dd id="subject"></dd>
+      </dl>
+      <textarea id="text" class="text" readonly aria-label="Report text"></textarea>
+      <p class="fine">
+        The e-mail goes from your own address, so the registrar can reply to you.
+        Scamouflage does not send anything itself and keeps no record of who reported what.
+      </p>
+    </div>
+
+    <p class="fine">
+      Opening this window sent the site's address to the Scamouflage server once,
+      to find the registrar's abuse contact. That is the only time the extension
+      tells the server which site you were on.
+    </p>
+  </main>
+
+  <footer class="foot">
+    <span id="note" class="note"></span>
+    <div class="actions">
+      <button id="retry" class="btn ghost" type="button" hidden>Try again</button>
+      <button id="copy" class="btn ghost" type="button" hidden>Copy text</button>
+      <a id="mailto" class="btn" href="#" hidden>Open in my mail app</a>
+      <button id="close" class="btn ghost" type="button">Close</button>
+    </div>
+  </footer>
+
+  <script src="report.js"></script>
+</body>
+</html>

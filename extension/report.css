@@ -1,0 +1,92 @@
+/* report.css: the "Report to the registrar" window. Calm and readable; the red is on the warning page. */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { margin: 0; height: 100%; }
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 100vh;
+  background: #ffffff;
+  color: #1b1b1b;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid #e6e2dc;
+  background: #f7f5f0;
+}
+.mark { height: 30px; width: auto; margin-top: 3px; }
+h1 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.2px; }
+.site { margin: 3px 0 0; font-size: 13.5px; color: #5c685f; word-break: break-all; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+.body { padding: 16px 22px; overflow: auto; display: flex; flex-direction: column; }
+.status { margin: 0 0 14px; font-size: 15.5px; }
+.status.err {
+  background: #fdf1ef;
+  color: #7a1b14;
+  border: 1px solid #f3cfca;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 500;
+}
+.meta {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  row-gap: 6px;
+  column-gap: 12px;
+  margin: 0 0 12px;
+  font-size: 14.5px;
+}
+.meta dt { color: #5c685f; }
+.meta dd { margin: 0; word-break: break-word; }
+.text {
+  display: block;
+  width: 100%;
+  min-height: 260px;
+  height: calc(100vh - 360px);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1b1b1b;
+  background: #faf8f4;
+  border: 1px solid #e1ddd3;
+  border-radius: 10px;
+  padding: 12px 14px;
+  resize: none;
+}
+.fine { margin: 10px 0 0; font-size: 13px; color: #5c685f; }
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 22px 16px;
+  border-top: 1px solid #e6e2dc;
+  background: #f7f5f0;
+}
+.note { flex: 1 1 140px; font-size: 14px; color: #2f7a4a; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
+.btn {
+  display: inline-block;
+  background: #1f4a2f;
+  color: #ffffff;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn:hover { background: #2b6340; }
+.btn.ghost { background: #ffffff; color: #1f4a2f; border-color: #cfd8cf; }
+.btn.ghost:hover { background: #eef2ea; }
+.btn:focus-visible { outline: 3px solid #2b6340; outline-offset: 3px; }
