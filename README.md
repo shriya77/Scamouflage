@@ -6,7 +6,7 @@ Scamouflage watches every new TLS certificate in the public Certificate Transpar
 
 IBM Z Datathon 2026 · Theme 2: AI Secured
 
-▶ **Demo video:** _link coming soon_ <!-- TODO: add the demo video URL -->
+▶ **Demo video:** https://youtu.be/Us-JV0JEuKk?si=zS6o9w2qaScMss9B
 
 ## Theme 2: AI Secured
 
